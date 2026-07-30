@@ -42,6 +42,12 @@ def apply_journal_quality_bonus(papers, bonus_per_sjr: float) -> list:
     return sorted(papers, key=lambda paper: paper.score or 0.0, reverse=True)
 
 
+def select_with_published_priority(papers, max_paper_num: int) -> list:
+    published = [paper for paper in papers if paper.source == "pubmed"]
+    preprints = [paper for paper in papers if paper.source != "pubmed"]
+    return (published + preprints)[:max_paper_num]
+
+
 def normalize_path_patterns(patterns: list[str] | ListConfig | None, config_key: str) -> list[str] | None:
     if patterns is None:
         return None
@@ -207,7 +213,18 @@ class Executor:
                 reranked_papers,
                 float(self.config.executor.get("pubmed_sjr_bonus", 0.12)),
             )
-            reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
+            reranked_papers = select_with_published_priority(
+                reranked_papers,
+                self.config.executor.max_paper_num,
+            )
+            published_count = sum(
+                paper.source == "pubmed" for paper in reranked_papers
+            )
+            logger.info(
+                f"Selected {len(reranked_papers)} papers for email: "
+                f"{published_count} published and "
+                f"{len(reranked_papers) - published_count} preprints"
+            )
             logger.info("Generating TLDR and affiliations...")
             for p in tqdm(reranked_papers):
                 p.generate_tldr(self.openai_client, self.config.llm)
