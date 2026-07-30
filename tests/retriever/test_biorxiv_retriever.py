@@ -56,3 +56,42 @@ def test_biorxiv_requires_category(config):
         config.source.biorxiv = {"category": None}
     with pytest.raises(ValueError, match="category must be specified"):
         BiorxivRetriever(config)
+
+
+def test_biorxiv_retries_truncated_json(config, monkeypatch):
+    from types import SimpleNamespace
+
+    calls = []
+
+    def _patched(url, **kwargs):
+        calls.append(kwargs)
+        response = SimpleNamespace(status_code=200, raise_for_status=lambda: None)
+        if len(calls) == 1:
+            response.json = lambda: (_ for _ in ()).throw(
+                ValueError("Unterminated string")
+            )
+        else:
+            response.json = lambda: SAMPLE_BIORXIV_API_RESPONSE
+        return response
+
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.retriever.biorxiv_retriever.requests.get",
+        _patched,
+    )
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.retriever.biorxiv_retriever.sleep",
+        lambda _: None,
+    )
+    with open_dict(config.source):
+        config.source.biorxiv = {
+            "category": ["bioinformatics"],
+            "retry_attempts": 2,
+            "retry_delay_seconds": 0,
+            "timeout_seconds": 30,
+        }
+
+    raw_papers = BiorxivRetriever(config)._retrieve_raw_papers()
+
+    assert len(raw_papers) == 1
+    assert len(calls) == 2
+    assert calls[0]["timeout"] == 30

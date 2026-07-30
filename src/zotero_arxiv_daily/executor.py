@@ -170,7 +170,16 @@ class Executor:
         all_papers = []
         for source, retriever in self.retrievers.items():
             logger.info(f"Retrieving {source} papers...")
-            papers = retriever.retrieve_papers()
+            try:
+                papers = retriever.retrieve_papers()
+            except Exception as exc:
+                # A transient outage in one public source should not suppress
+                # papers successfully retrieved from the remaining sources.
+                logger.error(
+                    f"Skipping unavailable source {source} after retries: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                continue
             if len(papers) == 0:
                 logger.info(f"No {source} papers found")
                 continue
