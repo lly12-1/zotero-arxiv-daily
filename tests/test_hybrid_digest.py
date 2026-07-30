@@ -5,6 +5,7 @@ from omegaconf import open_dict
 from zotero_arxiv_daily.construct_email import render_email
 from zotero_arxiv_daily.dedup import deduplicate_papers
 from zotero_arxiv_daily.executor import apply_journal_quality_bonus, filter_topic_papers
+from zotero_arxiv_daily.journal_metrics import load_journal_metrics, match_journal_metric
 from zotero_arxiv_daily.protocol import Paper
 from zotero_arxiv_daily.retriever.pubmed_retriever import PubmedRetriever
 
@@ -79,6 +80,24 @@ def test_pubmed_retriever_rejects_unlisted_or_review_articles(config):
     retriever = PubmedRetriever(config)
     assert retriever.convert_to_paper(_pubmed_xml(journal="Unlisted Journal")) is None
     assert retriever.convert_to_paper(_pubmed_xml(publication_type="Review")) is None
+
+
+def test_expanded_neurology_whitelist_matches_pubmed_journal_names():
+    metrics = load_journal_metrics("config/neurology_journals_sjr_2024.csv")
+    expected = {
+        "Brain : a journal of neurology": 4.720,
+        "Annals of Neurology": 3.736,
+        "Neurology": 2.401,
+        "Alzheimer's & dementia : the journal of the Alzheimer's Association": 3.600,
+        "Journal of neurology, neurosurgery, and psychiatry": 3.379,
+        "NPJ Parkinson's disease": 2.914,
+    }
+
+    for journal, sjr in expected.items():
+        metric = match_journal_metric(journal, metrics)
+        assert metric is not None
+        assert metric.sjr == sjr
+        assert metric.quartile == "Q1"
 
 
 def test_sjr_bonus_prioritizes_top_journal_without_removing_preprints():
