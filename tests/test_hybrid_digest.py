@@ -133,23 +133,23 @@ def test_email_limit_prioritizes_published_then_fills_with_preprints():
         for index in range(3)
     ]
 
-    selected = select_with_published_priority(preprints + published, 25)
+    selected = select_with_published_priority(preprints + published, 30)
 
     assert selected[:3] == published
-    assert selected[3:] == preprints[:22]
-    assert len(selected) == 25
+    assert selected[3:] == preprints[:27]
+    assert len(selected) == 30
 
 
 def test_email_limit_uses_only_top_published_when_they_fill_the_quota():
     published = [
         _paper(source="pubmed", title=f"Published {index}", score=100.0 - index)
-        for index in range(30)
+        for index in range(35)
     ]
     preprint = _paper(title="Preprint", score=200.0)
 
-    selected = select_with_published_priority(published + [preprint], 25)
+    selected = select_with_published_priority(published + [preprint], 30)
 
-    assert selected == published[:25]
+    assert selected == published[:30]
     assert preprint not in selected
 
 
