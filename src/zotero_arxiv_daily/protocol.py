@@ -20,6 +20,15 @@ class Paper:
     tldr: Optional[str] = None
     affiliations: Optional[list[str]] = None
     score: Optional[float] = None
+    doi: Optional[str] = None
+    pmid: Optional[str] = None
+    journal: Optional[str] = None
+    publication_date: Optional[str] = None
+    evidence_level: Optional[str] = None
+    journal_metric_name: Optional[str] = None
+    journal_metric_value: Optional[float] = None
+    journal_metric_year: Optional[int] = None
+    journal_quartile: Optional[str] = None
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
         lang = llm_params.get('language', 'English')

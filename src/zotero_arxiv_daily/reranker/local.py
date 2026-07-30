@@ -19,7 +19,11 @@ class LocalReranker(BaseReranker):
             logging.getLogger("huggingface_hub.utils._http").setLevel(logging.ERROR)
             warnings.filterwarnings("ignore", category=FutureWarning)
 
-        encoder = SentenceTransformer(self.config.reranker.local.model, trust_remote_code=True)
+        # Do not execute model-repository Python code during a scheduled job.
+        encoder = SentenceTransformer(
+            self.config.reranker.local.model,
+            trust_remote_code=False,
+        )
         if self.config.reranker.local.encode_kwargs:
             encode_kwargs = self.config.reranker.local.encode_kwargs
         else:

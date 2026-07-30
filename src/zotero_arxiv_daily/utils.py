@@ -156,10 +156,13 @@ def send_email(config:DictConfig, html:str):
     msg['Subject'] = Header(f'Daily arXiv {today}', 'utf-8').encode()
 
     try:
-        server = smtplib.SMTP(smtp_server, smtp_port)
-        server.starttls()
+        if int(smtp_port) == 465:
+            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+        else:
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()
     except Exception as e:
-        logger.debug(f"Failed to use TLS. {e}\nTry to use SSL.")
+        logger.debug(f"Failed to use configured SMTP mode. {e}\nTry alternatives.")
         try:
             server = smtplib.SMTP_SSL(smtp_server, smtp_port)
         except Exception as e:

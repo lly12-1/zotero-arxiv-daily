@@ -4,13 +4,42 @@ from omegaconf import DictConfig, ListConfig
 from .utils import glob_match
 from .retriever import get_retriever_cls
 from .protocol import CorpusPaper
+from .dedup import deduplicate_papers
 import random
+import re
 from datetime import datetime
+from time import sleep
 from .reranker import get_reranker_cls
 from .construct_email import render_email
 from .utils import send_email
-from openai import OpenAI
+from openai import DefaultHttpxClient, OpenAI
 from tqdm import tqdm
+import httpx
+
+
+def _normalized_search_text(value: str) -> str:
+    value = value.casefold().replace("α", "alpha").replace("β", "beta")
+    return re.sub(r"[^a-z0-9]+", " ", value).strip()
+
+
+def filter_topic_papers(papers, keywords) -> list:
+    normalized_keywords = [_normalized_search_text(str(keyword)) for keyword in keywords]
+    selected = []
+    for paper in papers:
+        text = _normalized_search_text(f"{paper.title} {paper.abstract}")
+        padded = f" {text} "
+        if any(f" {keyword} " in padded for keyword in normalized_keywords if keyword):
+            selected.append(paper)
+    return selected
+
+
+def apply_journal_quality_bonus(papers, bonus_per_sjr: float) -> list:
+    for paper in papers:
+        if paper.score is None:
+            continue
+        if paper.source == "pubmed" and paper.journal_metric_value is not None:
+            paper.score += min(float(paper.journal_metric_value), 12.0) * bonus_per_sjr
+    return sorted(papers, key=lambda paper: paper.score or 0.0, reverse=True)
 
 
 def normalize_path_patterns(patterns: list[str] | ListConfig | None, config_key: str) -> list[str] | None:
@@ -38,13 +67,55 @@ class Executor:
             source: get_retriever_cls(source)(config) for source in config.executor.source
         }
         self.reranker = get_reranker_cls(config.executor.reranker)(config)
-        self.openai_client = OpenAI(api_key=config.llm.api.key, base_url=config.llm.api.base_url)
+        self.openai_client = OpenAI(
+            api_key=config.llm.api.key,
+            base_url=config.llm.api.base_url,
+            timeout=120,
+            max_retries=3,
+            # The same local proxy that disrupts Zotero also breaks TLS to
+            # DeepSeek. GitHub Actions works with this direct client as well.
+            http_client=DefaultHttpxClient(trust_env=False),
+        )
+
+    @staticmethod
+    def _fetch_zotero_with_retry(fetch, label: str, attempts: int = 5):
+        for attempt in range(1, attempts + 1):
+            try:
+                return fetch()
+            except httpx.HTTPError as exc:
+                if attempt == attempts:
+                    raise
+                wait_seconds = attempt * 5
+                logger.warning(
+                    f"Zotero {label} request failed "
+                    f"({attempt}/{attempts}): {exc}. "
+                    f"Retrying in {wait_seconds} seconds."
+                )
+                sleep(wait_seconds)
+
     def fetch_zotero_corpus(self) -> list[CorpusPaper]:
         logger.info("Fetching zotero corpus")
-        zot = zotero.Zotero(self.config.zotero.user_id, 'user', self.config.zotero.api_key)
-        collections = zot.everything(zot.collections())
+        # Some local proxy configurations terminate TLS for authenticated
+        # Zotero API requests. Zotero is a public HTTPS API, so use a direct
+        # client here while leaving proxy behavior unchanged for other sources.
+        zotero_client = httpx.Client(follow_redirects=True, trust_env=False)
+        zot = zotero.Zotero(
+            self.config.zotero.user_id,
+            'user',
+            self.config.zotero.api_key,
+            client=zotero_client,
+        )
+        collections = self._fetch_zotero_with_retry(
+            lambda: zot.everything(zot.collections()),
+            "collections",
+        )
         collections = {c['key']:c for c in collections}
-        corpus = zot.everything(zot.items(itemType='conferencePaper || journalArticle || preprint'))
+        corpus = self._fetch_zotero_with_retry(
+            lambda: zot.everything(
+                zot.items(itemType='conferencePaper || journalArticle || preprint')
+            ),
+            "items",
+        )
         corpus = [c for c in corpus if c['data']['abstractNote'] != '']
         def get_collection_path(col_key:str) -> str:
             if p := collections[col_key]['data']['parentCollection']:
@@ -106,10 +177,27 @@ class Executor:
             logger.info(f"Retrieved {len(papers)} {source} papers")
             all_papers.extend(papers)
         logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
+        topic_keywords = self.config.executor.get("topic_keywords", [])
+        if topic_keywords:
+            before_filter = len(all_papers)
+            all_papers = filter_topic_papers(all_papers, topic_keywords)
+            logger.info(
+                f"Topic filter retained {len(all_papers)} of {before_filter} papers"
+            )
+        before_dedup = len(all_papers)
+        all_papers = deduplicate_papers(all_papers)
+        logger.info(
+            f"Cross-source deduplication retained {len(all_papers)} "
+            f"of {before_dedup} papers"
+        )
         reranked_papers = []
         if len(all_papers) > 0:
             logger.info("Reranking papers...")
             reranked_papers = self.reranker.rerank(all_papers, corpus)
+            reranked_papers = apply_journal_quality_bonus(
+                reranked_papers,
+                float(self.config.executor.get("pubmed_sjr_bonus", 0.12)),
+            )
             reranked_papers = reranked_papers[:self.config.executor.max_paper_num]
             logger.info("Generating TLDR and affiliations...")
             for p in tqdm(reranked_papers):

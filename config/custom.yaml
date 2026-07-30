@@ -1,26 +1,125 @@
 zotero:
   user_id: ${oc.env:ZOTERO_ID}
   api_key: ${oc.env:ZOTERO_KEY}
-  include_path: null # Or set a list of glob patterns, e.g. ["2026/survey/**","2026/reading-group/**"]
+  # For higher precision, create a Zotero collection named
+  # "Neurodegeneration" and change this to:
+  # include_path: ["Neurodegeneration", "Neurodegeneration/**"]
+  include_path: null
+  ignore_path: null
 
 email:
   sender: ${oc.env:SENDER}
   receiver: ${oc.env:RECEIVER}
-  smtp_server: smtp.qq.com
-  smtp_port: 465
+  smtp_server: ${oc.env:SMTP_SERVER,smtp.qq.com}
+  smtp_port: ${oc.env:SMTP_PORT,465}
   sender_password: ${oc.env:SENDER_PASSWORD}
 
 llm:
   api:
     key: ${oc.env:OPENAI_API_KEY}
-    base_url: ${oc.env:OPENAI_API_BASE}
+    base_url: ${oc.env:OPENAI_API_BASE,https://api.deepseek.com}
   generation_kwargs:
-    model: gpt-4o-mini
+    model: ${oc.env:LLM_MODEL,deepseek-v4-flash}
+    max_tokens: 16384
+  language: Chinese
+
+reranker:
+  local:
+    # Standard Sentence Transformers model: no remote Python code required.
+    model: sentence-transformers/all-MiniLM-L6-v2
+    encode_kwargs: null
 
 source:
   arxiv:
-    category: ["cs.AI","cs.CV","cs.LG","cs.CL"]
+    # Neurons/cognition plus molecular, genomic, quantitative and imaging work.
+    category: ["q-bio.NC", "q-bio.GN", "q-bio.MN", "q-bio.QM", "physics.med-ph"]
+    include_cross_list: true
+  biorxiv:
+    # Basic and translational neurodegeneration research.
+    category:
+      - neuroscience
+      - genetics
+      - genomics
+      - molecular biology
+      - cell biology
+      - pathology
+      - pharmacology and toxicology
+  medrxiv:
+    # Clinical, biomarker, imaging, genetics and therapeutic studies.
+    category:
+      - neurology
+      - geriatric medicine
+      - genetic and genomic medicine
+      - radiology and imaging
+      - pharmacology and therapeutics
+  pubmed:
+    # Public, reproducible journal-quality proxy. This is SJR, not JIF.
+    journal_metrics_file: config/neurology_journals_sjr_2024.csv
+    min_sjr: 1.5
+    lookback_days: 3
+    retmax: 200
+    api_key: ${oc.env:NCBI_API_KEY,null}
+    exclude_publication_types:
+      - Review
+      - Systematic Review
+      - Meta-Analysis
+      - Editorial
+      - Comment
+      - Letter
+      - News
+    query: >-
+      (
+        "Neurodegenerative Diseases"[Mesh]
+        OR neurodegenerat*[Title/Abstract]
+        OR "Alzheimer Disease"[Mesh]
+        OR Alzheimer*[Title/Abstract]
+        OR "Parkinson Disease"[Mesh]
+        OR Parkinson*[Title/Abstract]
+        OR parkinsonism[Title/Abstract]
+        OR "Huntington Disease"[Mesh]
+        OR Huntington*[Title/Abstract]
+        OR "Movement Disorders"[Mesh]
+        OR "movement disorder*"[Title/Abstract]
+        OR "Lewy Body Disease"[Mesh]
+        OR "frontotemporal dementia"[Title/Abstract]
+        OR "multiple system atrophy"[Title/Abstract]
+        OR "progressive supranuclear palsy"[Title/Abstract]
+        OR "corticobasal degeneration"[Title/Abstract]
+        OR tauopath*[Title/Abstract]
+        OR synucleinopath*[Title/Abstract]
+      )
 
 executor:
-  debug: ${oc.env:DEBUG,null}
-  source: ['arxiv']
+  debug: ${oc.decode:${oc.env:DEBUG,false}}
+  send_empty: false
+  max_paper_num: 25
+  source: [pubmed, arxiv, biorxiv, medrxiv]
+  reranker: local
+  # Applied to all sources before ranking. Preprints are otherwise retained
+  # without a journal-metric threshold.
+  topic_keywords:
+    - neurodegenerative
+    - neurodegeneration
+    - Alzheimer
+    - mild cognitive impairment
+    - dementia
+    - Parkinson
+    - parkinsonism
+    - movement disorder
+    - Huntington
+    - chorea
+    - Lewy body
+    - frontotemporal dementia
+    - amyotrophic lateral sclerosis
+    - multiple system atrophy
+    - progressive supranuclear palsy
+    - corticobasal degeneration
+    - tauopathy
+    - synucleinopathy
+    - TDP-43
+    - amyloid
+    - alpha-synuclein
+    - dopaminergic
+    - basal ganglia
+  # Small, transparent ranking preference for higher-SJR PubMed papers.
+  pubmed_sjr_bonus: 0.12

@@ -167,6 +167,7 @@ def test_run_end_to_end(config, monkeypatch):
         config.executor.source = ["arxiv"]
         config.executor.reranker = "api"
         config.executor.send_empty = False
+        config.executor.topic_keywords = []
 
     # 1. Stub pyzotero
     stub_zot = make_stub_zotero_client()
