@@ -7,6 +7,7 @@ from omegaconf import OmegaConf
 
 from zotero_arxiv_daily.executor import Executor, normalize_path_patterns
 from zotero_arxiv_daily.protocol import CorpusPaper
+from zotero_arxiv_daily.protocol import Paper
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +98,52 @@ def test_filter_corpus_no_filters_returns_all():
     ]
     filtered = executor.filter_corpus(corpus)
     assert filtered == corpus
+
+
+def test_run_skips_failed_source_and_uses_remaining_source(config, monkeypatch):
+    from types import SimpleNamespace
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.openai_client = SimpleNamespace()
+    executor.fetch_zotero_corpus = lambda: [
+        CorpusPaper(
+            title="Parkinson corpus",
+            abstract="Parkinson disease",
+            added_date=datetime(2026, 1, 1),
+            paths=[],
+        )
+    ]
+    executor.filter_corpus = lambda corpus: corpus
+
+    def _fail():
+        raise ValueError("truncated JSON")
+
+    paper = Paper(
+        source="arxiv",
+        title="Parkinson study",
+        authors=["Doe J"],
+        abstract="Parkinson disease",
+        url="https://example.test",
+        score=8.0,
+    )
+    paper.generate_tldr = lambda *args: setattr(paper, "tldr", "summary")
+    paper.generate_affiliations = lambda *args: None
+    executor.retrievers = {
+        "biorxiv": SimpleNamespace(retrieve_papers=_fail),
+        "arxiv": SimpleNamespace(retrieve_papers=lambda: [paper]),
+    }
+    executor.reranker = SimpleNamespace(rerank=lambda papers, corpus: papers)
+    sent = []
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor.send_email",
+        lambda cfg, body: sent.append(body),
+    )
+
+    executor.run()
+
+    assert len(sent) == 1
+    assert "Parkinson study" in sent[0]
 
 
 # ---------------------------------------------------------------------------
