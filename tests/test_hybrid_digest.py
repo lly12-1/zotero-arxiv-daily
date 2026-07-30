@@ -86,9 +86,17 @@ def test_pubmed_retriever_rejects_unlisted_or_review_articles(config):
     assert retriever.convert_to_paper(_pubmed_xml(publication_type="Review")) is None
 
 
-def test_expanded_neurology_whitelist_matches_pubmed_journal_names():
+def test_expanded_whitelist_matches_pubmed_journal_names():
     metrics = load_journal_metrics("config/neurology_journals_sjr_2024.csv")
     expected = {
+        "Cell": 22.612,
+        "Nature medicine": 18.333,
+        "Nature": 18.288,
+        "Nature neuroscience": 11.197,
+        "Science (New York, N.Y.)": 10.416,
+        "Nature aging": 7.081,
+        "Neuron": 6.755,
+        "Molecular neurodegeneration": 5.488,
         "Brain : a journal of neurology": 4.720,
         "Annals of Neurology": 3.736,
         "Neurology": 2.401,
