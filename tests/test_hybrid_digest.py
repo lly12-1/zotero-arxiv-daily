@@ -4,7 +4,11 @@ from omegaconf import open_dict
 
 from zotero_arxiv_daily.construct_email import render_email
 from zotero_arxiv_daily.dedup import deduplicate_papers
-from zotero_arxiv_daily.executor import apply_journal_quality_bonus, filter_topic_papers
+from zotero_arxiv_daily.executor import (
+    apply_journal_quality_bonus,
+    filter_topic_papers,
+    select_with_published_priority,
+)
 from zotero_arxiv_daily.journal_metrics import load_journal_metrics, match_journal_metric
 from zotero_arxiv_daily.protocol import Paper
 from zotero_arxiv_daily.retriever.pubmed_retriever import PubmedRetriever
@@ -109,6 +113,36 @@ def test_sjr_bonus_prioritizes_top_journal_without_removing_preprints():
     )
     ranked = apply_journal_quality_bonus([preprint, published], 0.12)
     assert ranked == [published, preprint]
+
+
+def test_email_limit_prioritizes_published_then_fills_with_preprints():
+    preprints = [
+        _paper(title=f"Preprint {index}", score=100.0 - index)
+        for index in range(30)
+    ]
+    published = [
+        _paper(source="pubmed", title=f"Published {index}", score=10.0 - index)
+        for index in range(3)
+    ]
+
+    selected = select_with_published_priority(preprints + published, 25)
+
+    assert selected[:3] == published
+    assert selected[3:] == preprints[:22]
+    assert len(selected) == 25
+
+
+def test_email_limit_uses_only_top_published_when_they_fill_the_quota():
+    published = [
+        _paper(source="pubmed", title=f"Published {index}", score=100.0 - index)
+        for index in range(30)
+    ]
+    preprint = _paper(title="Preprint", score=200.0)
+
+    selected = select_with_published_priority(published + [preprint], 25)
+
+    assert selected == published[:25]
+    assert preprint not in selected
 
 
 def test_email_separates_peer_reviewed_and_preprint_evidence():
