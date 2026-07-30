@@ -92,7 +92,7 @@ source:
 executor:
   debug: ${oc.decode:${oc.env:DEBUG,false}}
   send_empty: false
-  max_paper_num: 25
+  max_paper_num: 30
   source: [pubmed, arxiv, biorxiv, medrxiv]
   reranker: local
   # Applied to all sources before ranking. Preprints are otherwise retained

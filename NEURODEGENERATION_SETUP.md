@@ -19,7 +19,7 @@ Candidates are deduplicated by DOI and then by normalized title plus first
 author. If a preprint and its PubMed version match, the formally published
 version is retained. Semantic relevance to the Zotero library is then scored,
 with a small transparent SJR bonus for PubMed records. The merged email remains
-capped at **25 papers total**.
+capped at **30 papers total**.
 
 ## Journal metric policy
 

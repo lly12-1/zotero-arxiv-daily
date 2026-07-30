@@ -210,7 +210,7 @@ def render_email(papers:list[Paper]) -> str:
     ]
     summary = (
         f"<p><strong>今日共 {len(papers)} 篇</strong>：正式发表 {len(published)} 篇，"
-        f"预印本 {len(preprints)} 篇；总上限 25 篇。</p>"
+        f"预印本 {len(preprints)} 篇；总上限 30 篇。</p>"
     )
     content = summary + "<br>".join(section for section in sections if section)
     return framework.replace('__CONTENT__', content)
