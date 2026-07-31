@@ -5,6 +5,7 @@ from .utils import glob_match
 from .retriever import get_retriever_cls
 from .protocol import CorpusPaper
 from .dedup import deduplicate_papers
+from .sent_history import SentHistory
 import random
 import re
 from datetime import datetime
@@ -205,6 +206,18 @@ class Executor:
             f"Cross-source deduplication retained {len(all_papers)} "
             f"of {before_dedup} papers"
         )
+        sent_history = SentHistory(
+            self.config.executor.get(
+                "sent_history_path",
+                ".state/sent-history.json",
+            ),
+            int(self.config.executor.get("sent_history_days", 30)),
+        )
+        all_papers, previously_sent_count = sent_history.filter_unsent(all_papers)
+        logger.info(
+            f"Sent-history filter excluded {previously_sent_count} previously "
+            f"delivered papers; {len(all_papers)} remain"
+        )
         reranked_papers = []
         if len(all_papers) > 0:
             logger.info("Reranking papers...")
@@ -225,6 +238,14 @@ class Executor:
                 f"{published_count} published and "
                 f"{len(reranked_papers) - published_count} preprints"
             )
+            if self.config.executor.get("seed_history_only", False):
+                sent_history.record(reranked_papers)
+                sent_history.save()
+                logger.info(
+                    f"Seeded sent history with {len(reranked_papers)} papers; "
+                    "no email was sent"
+                )
+                return
             logger.info("Generating TLDR and affiliations...")
             for p in tqdm(reranked_papers):
                 p.generate_tldr(self.openai_client, self.config.llm)
@@ -236,3 +257,8 @@ class Executor:
         email_content = render_email(reranked_papers)
         send_email(self.config, email_content)
         logger.info("Email sent successfully")
+        sent_history.record(reranked_papers)
+        sent_history.save()
+        logger.info(
+            f"Persisted sent history for {len(reranked_papers)} delivered papers"
+        )

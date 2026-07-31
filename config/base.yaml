@@ -65,3 +65,6 @@ executor:
   reranker: local # The reranker to use. Example: 'local' or 'api'
   topic_keywords: []
   pubmed_sjr_bonus: 0.12
+  sent_history_path: .state/sent-history.json
+  sent_history_days: 30
+  seed_history_only: false
