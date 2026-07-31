@@ -239,11 +239,24 @@ class Executor:
                 f"{len(reranked_papers) - published_count} preprints"
             )
             if self.config.executor.get("seed_history_only", False):
-                sent_history.record(reranked_papers)
+                excluded_pmids = {
+                    value.strip()
+                    for value in str(
+                        self.config.executor.get("seed_exclude_pmids", "")
+                    ).split(",")
+                    if value.strip()
+                }
+                seed_papers = [
+                    paper
+                    for paper in reranked_papers
+                    if not paper.pmid or paper.pmid not in excluded_pmids
+                ]
+                sent_history.record(seed_papers)
                 sent_history.save()
                 logger.info(
-                    f"Seeded sent history with {len(reranked_papers)} papers; "
-                    "no email was sent"
+                    f"Seeded sent history with {len(seed_papers)} papers; "
+                    f"excluded {len(reranked_papers) - len(seed_papers)} explicitly "
+                    "new PubMed papers; no email was sent"
                 )
                 return
             logger.info("Generating TLDR and affiliations...")

@@ -7,6 +7,11 @@ on:
         required: false
         default: false
         type: boolean
+      seed_exclude_pmids:
+        description: Comma-separated new PMIDs to exclude while backfilling history
+        required: false
+        default: ""
+        type: string
   schedule:
     # 07:20 Asia/Shanghai (UTC+8), equivalent to 23:20 UTC on the previous day.
     - cron: '20 23 * * *'
@@ -49,6 +54,7 @@ jobs:
           HF_HUB_DISABLE_XET: '1'
           SENT_HISTORY_PATH: .state/sent-history.json
           SEED_HISTORY_ONLY: ${{ inputs.seed_history_only || 'false' }}
+          SEED_EXCLUDE_PMIDS: ${{ inputs.seed_exclude_pmids || '' }}
         run: uv run src/zotero_arxiv_daily/main.py
 
       - name: Save sent history
