@@ -202,6 +202,7 @@ def test_seed_history_records_without_sending_email(config, monkeypatch):
 
     with open_dict(config):
         config.executor.seed_history_only = True
+        config.executor.seed_exclude_pmids = "99999999"
     executor = Executor.__new__(Executor)
     executor.config = config
     executor.openai_client = SimpleNamespace()
@@ -224,8 +225,18 @@ def test_seed_history_records_without_sending_email(config, monkeypatch):
         evidence_level="peer_reviewed",
         score=8.0,
     )
+    excluded_paper = Paper(
+        source="pubmed",
+        title="New Parkinson seed test",
+        authors=["Roe J"],
+        abstract="Parkinson disease",
+        url="https://pubmed.ncbi.nlm.nih.gov/99999999/",
+        pmid="99999999",
+        evidence_level="peer_reviewed",
+        score=7.0,
+    )
     executor.retrievers = {
-        "pubmed": SimpleNamespace(retrieve_papers=lambda: [paper]),
+        "pubmed": SimpleNamespace(retrieve_papers=lambda: [paper, excluded_paper]),
     }
     executor.reranker = SimpleNamespace(rerank=lambda papers, corpus: papers)
     sent = []
@@ -237,7 +248,13 @@ def test_seed_history_records_without_sending_email(config, monkeypatch):
     executor.run()
 
     assert sent == []
-    assert Path(config.executor.sent_history_path).exists()
+    history_path = Path(config.executor.sent_history_path)
+    assert history_path.exists()
+    from zotero_arxiv_daily.sent_history import SentHistory
+
+    history = SentHistory(history_path)
+    assert history.was_sent(paper)
+    assert not history.was_sent(excluded_paper)
 
 
 # ---------------------------------------------------------------------------
