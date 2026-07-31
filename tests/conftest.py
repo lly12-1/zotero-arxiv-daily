@@ -8,6 +8,7 @@ import copy
 import pytest
 from hydra import compose, initialize_config_dir
 from hydra.core.global_hydra import GlobalHydra
+from omegaconf import open_dict
 from pathlib import Path
 
 _CONFIG_DIR = str(Path(__file__).resolve().parent.parent / "config")
@@ -50,9 +51,12 @@ def _base_config():
 
 
 @pytest.fixture()
-def config(_base_config):
+def config(_base_config, tmp_path):
     """Function-scoped deep copy of the session config.
 
     Safe to mutate inside any test without polluting other tests.
     """
-    return copy.deepcopy(_base_config)
+    config = copy.deepcopy(_base_config)
+    with open_dict(config):
+        config.executor.sent_history_path = str(tmp_path / "sent-history.json")
+    return config

@@ -146,6 +146,100 @@ def test_run_skips_failed_source_and_uses_remaining_source(config, monkeypatch):
     assert "Parkinson study" in sent[0]
 
 
+def test_run_records_history_only_after_email_succeeds(config, monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.openai_client = SimpleNamespace()
+    executor.fetch_zotero_corpus = lambda: [
+        CorpusPaper(
+            title="Parkinson corpus",
+            abstract="Parkinson disease",
+            added_date=datetime(2026, 1, 1),
+            paths=[],
+        )
+    ]
+    executor.filter_corpus = lambda corpus: corpus
+    paper = Paper(
+        source="pubmed",
+        title="Parkinson history test",
+        authors=["Doe J"],
+        abstract="Parkinson disease",
+        url="https://pubmed.ncbi.nlm.nih.gov/12345678/",
+        pmid="12345678",
+        evidence_level="peer_reviewed",
+        journal="Movement Disorders",
+        journal_metric_name="SJR",
+        journal_metric_value=2.988,
+        journal_metric_year=2024,
+        journal_quartile="Q1",
+        score=8.0,
+    )
+    paper.generate_tldr = lambda *args: setattr(paper, "tldr", "summary")
+    paper.generate_affiliations = lambda *args: None
+    executor.retrievers = {
+        "pubmed": SimpleNamespace(retrieve_papers=lambda: [paper]),
+    }
+    executor.reranker = SimpleNamespace(rerank=lambda papers, corpus: papers)
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor.send_email",
+        lambda *_: (_ for _ in ()).throw(RuntimeError("SMTP failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="SMTP failed"):
+        executor.run()
+
+    assert not Path(config.executor.sent_history_path).exists()
+
+
+def test_seed_history_records_without_sending_email(config, monkeypatch):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from omegaconf import open_dict
+
+    with open_dict(config):
+        config.executor.seed_history_only = True
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.openai_client = SimpleNamespace()
+    executor.fetch_zotero_corpus = lambda: [
+        CorpusPaper(
+            title="Parkinson corpus",
+            abstract="Parkinson disease",
+            added_date=datetime(2026, 1, 1),
+            paths=[],
+        )
+    ]
+    executor.filter_corpus = lambda corpus: corpus
+    paper = Paper(
+        source="pubmed",
+        title="Parkinson seed test",
+        authors=["Doe J"],
+        abstract="Parkinson disease",
+        url="https://pubmed.ncbi.nlm.nih.gov/87654321/",
+        pmid="87654321",
+        evidence_level="peer_reviewed",
+        score=8.0,
+    )
+    executor.retrievers = {
+        "pubmed": SimpleNamespace(retrieve_papers=lambda: [paper]),
+    }
+    executor.reranker = SimpleNamespace(rerank=lambda papers, corpus: papers)
+    sent = []
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor.send_email",
+        lambda *args: sent.append(args),
+    )
+
+    executor.run()
+
+    assert sent == []
+    assert Path(config.executor.sent_history_path).exists()
+
+
 # ---------------------------------------------------------------------------
 # fetch_zotero_corpus
 # ---------------------------------------------------------------------------

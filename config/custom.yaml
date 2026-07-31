@@ -95,6 +95,10 @@ executor:
   max_paper_num: 30
   source: [pubmed, arxiv, biorxiv, medrxiv]
   reranker: local
+  # Restored and saved by GitHub Actions across daily runs.
+  sent_history_path: ${oc.env:SENT_HISTORY_PATH,.state/sent-history.json}
+  sent_history_days: 30
+  seed_history_only: ${oc.decode:${oc.env:SEED_HISTORY_ONLY,false}}
   # Applied to all sources before ranking. Preprints are otherwise retained
   # without a journal-metric threshold.
   topic_keywords:

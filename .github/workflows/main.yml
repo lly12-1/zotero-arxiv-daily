@@ -1,9 +1,19 @@
 name: Send emails daily
 on:
   workflow_dispatch:
+    inputs:
+      seed_history_only:
+        description: Seed sent history without sending an email
+        required: false
+        default: false
+        type: boolean
   schedule:
     # 07:20 Asia/Shanghai (UTC+8), equivalent to 23:20 UTC on the previous day.
     - cron: '20 23 * * *'
+
+concurrency:
+  group: neurodegeneration-daily-digest
+  cancel-in-progress: false
 
 jobs:
   calculate-and-send:
@@ -14,6 +24,14 @@ jobs:
 
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
+
+      - name: Restore sent history
+        uses: actions/cache/restore@v5
+        with:
+          path: .state/sent-history.json
+          key: sent-history-${{ github.run_id }}
+          restore-keys: |
+            sent-history-
 
       - name: Run script
         env:
@@ -29,4 +47,13 @@ jobs:
           LLM_MODEL: ${{ vars.LLM_MODEL || 'deepseek-v4-flash' }}
           NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
           HF_HUB_DISABLE_XET: '1'
+          SENT_HISTORY_PATH: .state/sent-history.json
+          SEED_HISTORY_ONLY: ${{ inputs.seed_history_only || 'false' }}
         run: uv run src/zotero_arxiv_daily/main.py
+
+      - name: Save sent history
+        if: ${{ success() && hashFiles('.state/sent-history.json') != '' }}
+        uses: actions/cache/save@v5
+        with:
+          path: .state/sent-history.json
+          key: sent-history-${{ github.run_id }}
