@@ -146,6 +146,36 @@ def test_run_skips_failed_source_and_uses_remaining_source(config, monkeypatch):
     assert "Parkinson study" in sent[0]
 
 
+def test_run_does_not_mark_complete_when_all_sources_fail(config):
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.fetch_zotero_corpus = lambda: [
+        CorpusPaper(
+            title="Parkinson corpus",
+            abstract="Parkinson disease",
+            added_date=datetime(2026, 1, 1),
+            paths=[],
+        )
+    ]
+    executor.filter_corpus = lambda corpus: corpus
+
+    def _fail():
+        raise RuntimeError("source unavailable")
+
+    executor.retrievers = {
+        "pubmed": SimpleNamespace(retrieve_papers=_fail),
+        "arxiv": SimpleNamespace(retrieve_papers=_fail),
+    }
+
+    with pytest.raises(RuntimeError, match="All configured paper sources failed"):
+        executor.run()
+
+    assert not Path(config.executor.sent_history_path).exists()
+
+
 def test_run_records_history_only_after_email_succeeds(config, monkeypatch):
     from pathlib import Path
     from types import SimpleNamespace
@@ -255,6 +285,49 @@ def test_seed_history_records_without_sending_email(config, monkeypatch):
     history = SentHistory(history_path)
     assert history.was_sent(paper)
     assert not history.was_sent(excluded_paper)
+
+
+def test_run_skips_when_daily_marker_already_exists(config, monkeypatch):
+    from zotero_arxiv_daily.sent_history import SentHistory
+
+    run_date = "2026-07-31"
+    history = SentHistory(config.executor.sent_history_path)
+    history.mark_completed(run_date)
+    history.save()
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor._current_run_date",
+        lambda _: run_date,
+    )
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.fetch_zotero_corpus = lambda: pytest.fail(
+        "duplicate trigger should skip before Zotero retrieval"
+    )
+
+    executor.run()
+
+
+def test_mark_today_complete_only_skips_retrieval(config, monkeypatch):
+    from omegaconf import open_dict
+    from zotero_arxiv_daily.sent_history import SentHistory
+
+    run_date = "2026-07-31"
+    with open_dict(config):
+        config.executor.mark_today_complete_only = True
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor._current_run_date",
+        lambda _: run_date,
+    )
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.fetch_zotero_corpus = lambda: pytest.fail(
+        "marker-only mode should not retrieve Zotero"
+    )
+
+    executor.run()
+
+    history = SentHistory(config.executor.sent_history_path)
+    assert history.completed_on(run_date)
 
 
 # ---------------------------------------------------------------------------
@@ -380,6 +453,11 @@ def test_run_no_papers_send_empty_false(config, monkeypatch):
         config.executor.source = ["arxiv"]
         config.executor.reranker = "api"
         config.executor.send_empty = False
+    run_date = "2026-07-31"
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor._current_run_date",
+        lambda _: run_date,
+    )
 
     stub_zot = make_stub_zotero_client()
     monkeypatch.setattr("zotero_arxiv_daily.executor.zotero.Zotero", lambda *a, **kw: stub_zot)
@@ -402,6 +480,10 @@ def test_run_no_papers_send_empty_false(config, monkeypatch):
     executor.run()
 
     assert len(sent) == 0, "No email should be sent when no papers and send_empty=false"
+    from zotero_arxiv_daily.sent_history import SentHistory
+
+    history = SentHistory(config.executor.sent_history_path)
+    assert history.completed_on(run_date)
 
 
 def test_run_no_papers_send_empty_true(config, monkeypatch):

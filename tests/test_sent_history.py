@@ -97,3 +97,15 @@ def test_corrupt_history_fails_closed(tmp_path):
 
     with pytest.raises(ValueError, match="Cannot read sent-history"):
         SentHistory(path, now=NOW)
+
+
+def test_daily_completion_marker_persists(tmp_path):
+    path = tmp_path / "sent-history.json"
+    history = SentHistory(path, now=NOW)
+    history.mark_completed("2026-07-31")
+    history.save()
+
+    restored = SentHistory(path, now=NOW + timedelta(hours=1))
+
+    assert restored.completed_on("2026-07-31")
+    assert not restored.completed_on("2026-08-01")
