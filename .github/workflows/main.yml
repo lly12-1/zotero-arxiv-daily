@@ -12,9 +12,22 @@ on:
         required: false
         default: ""
         type: string
+      force_run:
+        description: Ignore today's completion marker and run normally
+        required: false
+        default: false
+        type: boolean
+      mark_today_complete_only:
+        description: Mark today complete without retrieval or email
+        required: false
+        default: false
+        type: boolean
   schedule:
     # 07:20 Asia/Shanghai (UTC+8), equivalent to 23:20 UTC on the previous day.
     - cron: '20 23 * * *'
+    # 09:10 Asia/Shanghai fallback. The daily marker makes this a no-op
+    # whenever the primary trigger has already completed successfully.
+    - cron: '10 1 * * *'
 
 concurrency:
   group: neurodegeneration-daily-digest
@@ -55,6 +68,8 @@ jobs:
           SENT_HISTORY_PATH: .state/sent-history.json
           SEED_HISTORY_ONLY: ${{ inputs.seed_history_only || 'false' }}
           SEED_EXCLUDE_PMIDS: ${{ inputs.seed_exclude_pmids || '' }}
+          FORCE_RUN: ${{ inputs.force_run || 'false' }}
+          MARK_TODAY_COMPLETE_ONLY: ${{ inputs.mark_today_complete_only || 'false' }}
         run: uv run src/zotero_arxiv_daily/main.py
 
       - name: Save sent history

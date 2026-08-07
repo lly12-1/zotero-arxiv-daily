@@ -100,6 +100,9 @@ executor:
   sent_history_days: 30
   seed_history_only: ${oc.decode:${oc.env:SEED_HISTORY_ONLY,false}}
   seed_exclude_pmids: ${oc.env:SEED_EXCLUDE_PMIDS,""}
+  daily_timezone: Asia/Shanghai
+  force_run: ${oc.decode:${oc.env:FORCE_RUN,false}}
+  mark_today_complete_only: ${oc.decode:${oc.env:MARK_TODAY_COMPLETE_ONLY,false}}
   # Applied to all sources before ranking. Preprints are otherwise retained
   # without a journal-metric threshold.
   topic_keywords:

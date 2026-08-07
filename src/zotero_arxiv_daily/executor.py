@@ -9,6 +9,7 @@ from .sent_history import SentHistory
 import random
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from time import sleep
 from .reranker import get_reranker_cls
 from .construct_email import render_email
@@ -47,6 +48,10 @@ def select_with_published_priority(papers, max_paper_num: int) -> list:
     published = [paper for paper in papers if paper.source == "pubmed"]
     preprints = [paper for paper in papers if paper.source != "pubmed"]
     return (published + preprints)[:max_paper_num]
+
+
+def _current_run_date(timezone_name: str) -> str:
+    return datetime.now(ZoneInfo(timezone_name)).date().isoformat()
 
 
 def normalize_path_patterns(patterns: list[str] | ListConfig | None, config_key: str) -> list[str] | None:
@@ -169,12 +174,40 @@ class Executor:
 
     
     def run(self):
+        sent_history = SentHistory(
+            self.config.executor.get(
+                "sent_history_path",
+                ".state/sent-history.json",
+            ),
+            int(self.config.executor.get("sent_history_days", 30)),
+        )
+        run_date = _current_run_date(
+            str(self.config.executor.get("daily_timezone", "Asia/Shanghai"))
+        )
+        if self.config.executor.get("mark_today_complete_only", False):
+            sent_history.mark_completed(run_date)
+            sent_history.save()
+            logger.info(
+                f"Marked daily digest complete for {run_date}; "
+                "no retrieval or email was performed"
+            )
+            return
+        seed_history_only = self.config.executor.get("seed_history_only", False)
+        force_run = self.config.executor.get("force_run", False)
+        if not seed_history_only and not force_run and sent_history.completed_on(run_date):
+            logger.info(
+                f"Daily digest already completed for {run_date}; "
+                "skipping duplicate trigger"
+            )
+            return
+
         corpus = self.fetch_zotero_corpus()
         corpus = self.filter_corpus(corpus)
         if len(corpus) == 0:
             logger.error(f"No zotero papers found. Please check your zotero settings:\n{self.config.zotero}")
             return
         all_papers = []
+        successful_source_count = 0
         for source, retriever in self.retrievers.items():
             logger.info(f"Retrieving {source} papers...")
             try:
@@ -187,11 +220,16 @@ class Executor:
                     f"{type(exc).__name__}: {exc}"
                 )
                 continue
+            successful_source_count += 1
             if len(papers) == 0:
                 logger.info(f"No {source} papers found")
                 continue
             logger.info(f"Retrieved {len(papers)} {source} papers")
             all_papers.extend(papers)
+        if successful_source_count == 0:
+            raise RuntimeError(
+                "All configured paper sources failed; daily completion was not marked"
+            )
         logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
         topic_keywords = self.config.executor.get("topic_keywords", [])
         if topic_keywords:
@@ -205,13 +243,6 @@ class Executor:
         logger.info(
             f"Cross-source deduplication retained {len(all_papers)} "
             f"of {before_dedup} papers"
-        )
-        sent_history = SentHistory(
-            self.config.executor.get(
-                "sent_history_path",
-                ".state/sent-history.json",
-            ),
-            int(self.config.executor.get("sent_history_days", 30)),
         )
         all_papers, previously_sent_count = sent_history.filter_unsent(all_papers)
         logger.info(
@@ -238,7 +269,7 @@ class Executor:
                 f"{published_count} published and "
                 f"{len(reranked_papers) - published_count} preprints"
             )
-            if self.config.executor.get("seed_history_only", False):
+            if seed_history_only:
                 excluded_pmids = {
                     value.strip()
                     for value in str(
@@ -263,15 +294,24 @@ class Executor:
             for p in tqdm(reranked_papers):
                 p.generate_tldr(self.openai_client, self.config.llm)
                 p.generate_affiliations(self.openai_client, self.config.llm)
+        elif seed_history_only:
+            sent_history.save()
+            logger.info("No papers available to seed; no email was sent")
+            return
         elif not self.config.executor.send_empty:
+            sent_history.mark_completed(run_date)
+            sent_history.save()
             logger.info("No new papers found. No email will be sent.")
+            logger.info(f"Marked daily digest complete for {run_date}")
             return
         logger.info("Sending email...")
         email_content = render_email(reranked_papers)
         send_email(self.config, email_content)
         logger.info("Email sent successfully")
         sent_history.record(reranked_papers)
+        sent_history.mark_completed(run_date)
         sent_history.save()
         logger.info(
-            f"Persisted sent history for {len(reranked_papers)} delivered papers"
+            f"Persisted sent history for {len(reranked_papers)} delivered papers "
+            f"and marked {run_date} complete"
         )

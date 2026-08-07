@@ -69,3 +69,6 @@ executor:
   sent_history_days: 30
   seed_history_only: false
   seed_exclude_pmids: ""
+  daily_timezone: Asia/Shanghai
+  force_run: false
+  mark_today_complete_only: false

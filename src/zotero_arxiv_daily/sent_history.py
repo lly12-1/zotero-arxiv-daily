@@ -62,19 +62,21 @@ class SentHistory:
         self.path = Path(path)
         self.retention_days = retention_days
         self.now = (now or _utc_now()).astimezone(timezone.utc)
-        self.records = self._load()
+        payload = self._load()
+        self.records = payload["records"]
+        self.last_completed_date = payload.get("last_completed_date")
         self._prune()
 
-    def _load(self) -> dict[str, dict[str, str]]:
+    def _load(self) -> dict:
         if not self.path.exists():
-            return {}
+            return {"version": 1, "records": {}}
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError(f"Cannot read sent-history file {self.path}: {exc}") from exc
         if payload.get("version") != 1 or not isinstance(payload.get("records"), dict):
             raise ValueError(f"Unsupported sent-history format in {self.path}")
-        return payload["records"]
+        return payload
 
     def _prune(self) -> None:
         cutoff = self.now - timedelta(days=self.retention_days)
@@ -117,6 +119,12 @@ class SentHistory:
             for fingerprint in paper_fingerprints(paper):
                 self.records[fingerprint] = record
 
+    def completed_on(self, local_date: str) -> bool:
+        return self.last_completed_date == local_date
+
+    def mark_completed(self, local_date: str) -> None:
+        self.last_completed_date = local_date
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.path.with_suffix(f"{self.path.suffix}.tmp")
@@ -124,6 +132,7 @@ class SentHistory:
             "version": 1,
             "updated_at": self.now.isoformat(),
             "retention_days": self.retention_days,
+            "last_completed_date": self.last_completed_date,
             "records": self.records,
         }
         temp_path.write_text(
