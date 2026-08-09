@@ -522,3 +522,11 @@ def test_run_no_papers_send_empty_true(config, monkeypatch):
     assert len(sent) == 1, "Email should be sent even with no papers when send_empty=true"
     _, _, body = sent[0]
     assert "text/html" in body
+    from email import message_from_string
+    from email.header import decode_header, make_header
+
+    message = message_from_string(body)
+    subject = str(make_header(decode_header(message["Subject"])))
+    html = message.get_payload(decode=True).decode(message.get_content_charset())
+    assert "今日无新增文献" in subject
+    assert "今日无新增文献" in html
