@@ -91,7 +91,8 @@ source:
 
 executor:
   debug: ${oc.decode:${oc.env:DEBUG,false}}
-  send_empty: false
+  # Send a short status email even when all matching papers were delivered before.
+  send_empty: true
   max_paper_num: 30
   source: [pubmed, arxiv, biorxiv, medrxiv]
   reranker: local

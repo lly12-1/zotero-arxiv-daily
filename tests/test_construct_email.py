@@ -14,7 +14,8 @@ def test_render_email_with_papers():
 
 def test_render_email_empty_list():
     html = render_email([])
-    assert "No Papers Today" in html
+    assert "今日无新增文献" in html
+    assert "今日检索已完成" in html
 
 
 def test_render_email_author_truncation():
@@ -75,4 +76,4 @@ def test_get_block_html_contains_all_fields():
 
 def test_get_empty_html():
     html = get_empty_html()
-    assert "No Papers Today" in html
+    assert "今日无新增文献" in html

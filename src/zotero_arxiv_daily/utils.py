@@ -139,7 +139,7 @@ def glob_match(path:str, pattern:str) -> bool:
     re_pattern = glob.translate(pattern,recursive=True)
     return re.match(re_pattern, path) is not None
 
-def send_email(config:DictConfig, html:str):
+def send_email(config:DictConfig, html:str, subject:str | None = None):
     sender = config.email.sender
     receiver = config.email.receiver
     password = config.email.sender_password
@@ -153,7 +153,8 @@ def send_email(config:DictConfig, html:str):
     msg['From'] = _format_addr('Github Action <%s>' % sender)
     msg['To'] = _format_addr('You <%s>' % receiver)
     today = datetime.datetime.now().strftime('%Y/%m/%d')
-    msg['Subject'] = Header(f'Daily arXiv {today}', 'utf-8').encode()
+    message_subject = f'{subject} {today}' if subject else f'Daily arXiv {today}'
+    msg['Subject'] = Header(message_subject, 'utf-8').encode()
 
     try:
         if int(smtp_port) == 465:

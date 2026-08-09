@@ -306,7 +306,10 @@ class Executor:
             return
         logger.info("Sending email...")
         email_content = render_email(reranked_papers)
-        send_email(self.config, email_content)
+        if len(reranked_papers) == 0:
+            send_email(self.config, email_content, subject="今日无新增文献")
+        else:
+            send_email(self.config, email_content)
         logger.info("Email sent successfully")
         sent_history.record(reranked_papers)
         sent_history.mark_completed(run_date)

@@ -46,7 +46,12 @@ def get_empty_html():
   <table border="0" cellpadding="0" cellspacing="0" width="100%" style="font-family: Arial, sans-serif; border: 1px solid #ddd; border-radius: 8px; padding: 16px; background-color: #f9f9f9;">
   <tr>
     <td style="font-size: 20px; font-weight: bold; color: #333;">
-        No Papers Today. Take a Rest!
+        今日无新增文献
+    </td>
+  </tr>
+  <tr>
+    <td style="font-size: 14px; color: #666; padding-top: 10px;">
+        今日检索已完成，符合条件的文章均已推送过。系统将在明日继续检索。
     </td>
   </tr>
   </table>
