@@ -118,11 +118,20 @@ class PubmedRetriever(BaseRetriever):
             str(value).casefold()
             for value in self.retriever_config.get("exclude_publication_types", [])
         }
+        pmid = _node_text(citation.find("./PMID"))
+        priority_paper = pmid in self.priority_pmids
+        if priority_paper:
+            allowed_priority_types = {
+                str(value).casefold()
+                for value in self.retriever_config.get(
+                    "priority_allowed_publication_types",
+                    [],
+                )
+            }
+            excluded -= allowed_priority_types
         if publication_types & excluded:
             return None
 
-        pmid = _node_text(citation.find("./PMID"))
-        priority_paper = pmid in self.priority_pmids
         journal = _node_text(article.find("./Journal/Title"))
         metric = match_journal_metric(journal, self.metrics)
         if (

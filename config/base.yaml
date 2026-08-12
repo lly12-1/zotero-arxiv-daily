@@ -27,6 +27,7 @@ source:
     min_sjr: 1.5
     api_key: null # Optional NCBI API key.
     exclude_publication_types: [Review, Systematic Review, Meta-Analysis, Editorial, Comment, Letter, News]
+    priority_allowed_publication_types: [] # Publication types restored only for the priority disease query.
 
 email:
   sender: ??? # The email account of the SMTP server that sends you email. Example: abc@qq.com

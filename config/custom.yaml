@@ -67,6 +67,12 @@ source:
       - Comment
       - Letter
       - News
+    # Huntington disease coverage also includes evidence syntheses, while
+    # editorials, comments, letters and news remain excluded.
+    priority_allowed_publication_types:
+      - Review
+      - Systematic Review
+      - Meta-Analysis
     query: >-
       (
         "Neurodegenerative Diseases"[Mesh]
@@ -88,8 +94,8 @@ source:
         OR tauopath*[Title/Abstract]
         OR synucleinopath*[Title/Abstract]
       )
-    # All recent original Huntington disease research is included regardless
-    # of journal whitelist/SJR. Publication-type exclusions still apply.
+    # All recent Huntington disease research and evidence syntheses are
+    # included regardless of journal whitelist/SJR.
     priority_query: >-
       (
         "Huntington Disease"[Mesh]

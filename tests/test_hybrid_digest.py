@@ -86,11 +86,11 @@ def test_pubmed_retriever_rejects_unlisted_or_review_articles(config):
     assert retriever.convert_to_paper(_pubmed_xml(publication_type="Review")) is None
 
 
-def test_huntington_priority_pubmed_bypasses_journal_threshold_but_not_review_filter(config):
+def test_huntington_priority_pubmed_includes_reviews_and_meta_analyses(config):
     with open_dict(config):
         config.source.pubmed.api_key = None
     retriever = PubmedRetriever(config)
-    retriever.priority_pmids = {"87654321", "87654322"}
+    retriever.priority_pmids = {"87654321", "87654322", "87654323"}
 
     paper = retriever.convert_to_paper(
         _pubmed_xml(journal="Journal Outside Whitelist", pmid="87654321")
@@ -102,11 +102,36 @@ def test_huntington_priority_pubmed_bypasses_journal_threshold_but_not_review_fi
             pmid="87654322",
         )
     )
+    meta_analysis = retriever.convert_to_paper(
+        _pubmed_xml(
+            publication_type="Meta-Analysis",
+            journal="Journal Outside Whitelist",
+            pmid="87654323",
+        )
+    )
 
     assert paper is not None
     assert paper.journal == "Journal Outside Whitelist"
     assert paper.journal_metric_value is None
-    assert review is None
+    assert review is not None
+    assert meta_analysis is not None
+
+
+def test_huntington_priority_still_rejects_editorials(config):
+    with open_dict(config):
+        config.source.pubmed.api_key = None
+    retriever = PubmedRetriever(config)
+    retriever.priority_pmids = {"87654324"}
+
+    editorial = retriever.convert_to_paper(
+        _pubmed_xml(
+            publication_type="Editorial",
+            journal="Journal Outside Whitelist",
+            pmid="87654324",
+        )
+    )
+
+    assert editorial is None
 
 
 def test_expanded_whitelist_matches_pubmed_journal_names():
