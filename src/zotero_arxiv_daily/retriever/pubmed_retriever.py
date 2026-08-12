@@ -40,6 +40,7 @@ class PubmedRetriever(BaseRetriever):
         self.session.trust_env = False
         self.metrics = load_journal_metrics(self.retriever_config.journal_metrics_file)
         self.min_sjr = float(self.retriever_config.min_sjr)
+        self.priority_pmids: set[str] = set()
 
     def _request(self, endpoint: str, params: dict[str, Any]) -> requests.Response:
         timeout = int(self.retriever_config.get("timeout_seconds", 30))
@@ -63,7 +64,7 @@ class PubmedRetriever(BaseRetriever):
                 sleep(wait)
         raise RuntimeError("PubMed request failed")
 
-    def _retrieve_raw_papers(self) -> list[ElementTree.Element]:
+    def _search_ids(self, term: str) -> list[str]:
         params: dict[str, Any] = {
             "db": "pubmed",
             "retmode": "json",
@@ -71,14 +72,22 @@ class PubmedRetriever(BaseRetriever):
             "retmax": int(self.retriever_config.get("retmax", 200)),
             "reldate": int(self.retriever_config.get("lookback_days", 3)),
             "datetype": "pdat",
-            "term": str(self.retriever_config.query),
+            "term": term,
             "tool": "zotero_arxiv_daily",
         }
         api_key = self.retriever_config.get("api_key")
         if api_key:
             params["api_key"] = str(api_key)
         search = self._request("esearch.fcgi", params).json()
-        ids = search.get("esearchresult", {}).get("idlist", [])
+        return search.get("esearchresult", {}).get("idlist", [])
+
+    def _retrieve_raw_papers(self) -> list[ElementTree.Element]:
+        ids = self._search_ids(str(self.retriever_config.query))
+        priority_query = self.retriever_config.get("priority_query")
+        if priority_query:
+            priority_ids = self._search_ids(str(priority_query))
+            self.priority_pmids = set(priority_ids)
+            ids = list(dict.fromkeys(priority_ids + ids))
         if self.config.executor.debug:
             ids = ids[:10]
         if not ids:
@@ -101,11 +110,6 @@ class PubmedRetriever(BaseRetriever):
         if citation is None or article is None:
             return None
 
-        journal = _node_text(article.find("./Journal/Title"))
-        metric = match_journal_metric(journal, self.metrics)
-        if metric is None or metric.sjr < self.min_sjr:
-            return None
-
         publication_types = {
             _node_text(node).casefold()
             for node in article.findall("./PublicationTypeList/PublicationType")
@@ -118,6 +122,14 @@ class PubmedRetriever(BaseRetriever):
             return None
 
         pmid = _node_text(citation.find("./PMID"))
+        priority_paper = pmid in self.priority_pmids
+        journal = _node_text(article.find("./Journal/Title"))
+        metric = match_journal_metric(journal, self.metrics)
+        if (
+            not priority_paper
+            and (metric is None or metric.sjr < self.min_sjr)
+        ):
+            return None
         title = _node_text(article.find("./ArticleTitle"))
         abstracts = []
         for node in article.findall("./Abstract/AbstractText"):
@@ -157,13 +169,13 @@ class PubmedRetriever(BaseRetriever):
             pdf_url=url,
             doi=doi,
             pmid=pmid,
-            journal=metric.journal,
+            journal=metric.journal if metric else journal,
             publication_date=_publication_date(raw_paper),
             evidence_level="peer_reviewed",
-            journal_metric_name="SJR",
-            journal_metric_value=metric.sjr,
-            journal_metric_year=metric.year,
-            journal_quartile=metric.quartile,
+            journal_metric_name="SJR" if metric else None,
+            journal_metric_value=metric.sjr if metric else None,
+            journal_metric_year=metric.year if metric else None,
+            journal_quartile=metric.quartile if metric else None,
         )
 
     def retrieve_papers(self) -> list[Paper]:

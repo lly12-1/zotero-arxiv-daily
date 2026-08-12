@@ -20,6 +20,7 @@ source:
     timeout_seconds: 60
   pubmed:
     query: null # PubMed query for formally published articles.
+    priority_query: null # Optional disease-specific query that bypasses the journal metric threshold.
     lookback_days: 3
     retmax: 200
     journal_metrics_file: config/neurology_journals_sjr_2024.csv
@@ -65,6 +66,7 @@ executor:
   reranker: local # The reranker to use. Example: 'local' or 'api'
   topic_keywords: []
   pubmed_sjr_bonus: 0.12
+  priority_topic_keywords: []
   sent_history_path: .state/sent-history.json
   sent_history_days: 30
   seed_history_only: false

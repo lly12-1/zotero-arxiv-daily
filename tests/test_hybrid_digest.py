@@ -27,12 +27,12 @@ def _paper(**overrides):
     return Paper(**values)
 
 
-def _pubmed_xml(publication_type="Journal Article", journal="Movement Disorders"):
+def _pubmed_xml(publication_type="Journal Article", journal="Movement Disorders", pmid="12345678"):
     return ElementTree.fromstring(
         f"""
         <PubmedArticle>
           <MedlineCitation>
-            <PMID>12345678</PMID>
+            <PMID>{pmid}</PMID>
             <Article>
               <ArticleTitle>Alpha-synuclein biomarkers in Parkinson disease</ArticleTitle>
               <Abstract><AbstractText Label="BACKGROUND">A clinical cohort study.</AbstractText></Abstract>
@@ -84,6 +84,29 @@ def test_pubmed_retriever_rejects_unlisted_or_review_articles(config):
     retriever = PubmedRetriever(config)
     assert retriever.convert_to_paper(_pubmed_xml(journal="Unlisted Journal")) is None
     assert retriever.convert_to_paper(_pubmed_xml(publication_type="Review")) is None
+
+
+def test_huntington_priority_pubmed_bypasses_journal_threshold_but_not_review_filter(config):
+    with open_dict(config):
+        config.source.pubmed.api_key = None
+    retriever = PubmedRetriever(config)
+    retriever.priority_pmids = {"87654321", "87654322"}
+
+    paper = retriever.convert_to_paper(
+        _pubmed_xml(journal="Journal Outside Whitelist", pmid="87654321")
+    )
+    review = retriever.convert_to_paper(
+        _pubmed_xml(
+            publication_type="Review",
+            journal="Journal Outside Whitelist",
+            pmid="87654322",
+        )
+    )
+
+    assert paper is not None
+    assert paper.journal == "Journal Outside Whitelist"
+    assert paper.journal_metric_value is None
+    assert review is None
 
 
 def test_expanded_whitelist_matches_pubmed_journal_names():
@@ -153,6 +176,31 @@ def test_email_limit_uses_only_top_published_when_they_fill_the_quota():
     assert preprint not in selected
 
 
+def test_huntington_papers_are_additive_to_normal_quota():
+    regular = [
+        _paper(source="pubmed", title=f"Published {index}", score=100.0 - index)
+        for index in range(30)
+    ]
+    huntington = [
+        _paper(
+            title=f"Huntingtin mechanism {index}",
+            abstract="Mutant HTT in Huntington disease.",
+            score=5.0 - index,
+        )
+        for index in range(3)
+    ]
+
+    selected = select_with_published_priority(
+        regular + huntington,
+        30,
+        ["Huntington disease", "huntingtin", "HTT"],
+    )
+
+    assert selected[:3] == huntington
+    assert selected[3:] == regular
+    assert len(selected) == 33
+
+
 def test_email_separates_peer_reviewed_and_preprint_evidence():
     published = _paper(
         source="pubmed",
@@ -168,7 +216,7 @@ def test_email_separates_peer_reviewed_and_preprint_evidence():
     )
     preprint = _paper(score=7.0, tldr="预印本摘要")
     html = render_email([published, preprint])
-    assert "正式发表（PubMed，SJR ≥ 1.5）" in html
+    assert "正式发表（PubMed：顶刊筛选 + 亨廷顿病专题全覆盖）" in html
     assert "预印本（未经同行评议）" in html
     assert "PMID 12345678" in html
     assert "SJR 2024 2.988 · Q1" in html
