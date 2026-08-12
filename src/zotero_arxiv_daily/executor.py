@@ -44,10 +44,32 @@ def apply_journal_quality_bonus(papers, bonus_per_sjr: float) -> list:
     return sorted(papers, key=lambda paper: paper.score or 0.0, reverse=True)
 
 
-def select_with_published_priority(papers, max_paper_num: int) -> list:
-    published = [paper for paper in papers if paper.source == "pubmed"]
-    preprints = [paper for paper in papers if paper.source != "pubmed"]
-    return (published + preprints)[:max_paper_num]
+def _matches_priority_topic(paper, keywords) -> bool:
+    text = _normalized_search_text(f"{paper.title} {paper.abstract}")
+    padded = f" {text} "
+    return any(
+        f" {_normalized_search_text(str(keyword))} " in padded
+        for keyword in keywords
+        if _normalized_search_text(str(keyword))
+    )
+
+
+def select_with_published_priority(
+    papers,
+    max_paper_num: int,
+    priority_keywords=None,
+) -> list:
+    priority_keywords = priority_keywords or []
+    priority = [
+        paper for paper in papers
+        if _matches_priority_topic(paper, priority_keywords)
+    ]
+    regular = [paper for paper in papers if paper not in priority]
+    # Huntington disease coverage is additive: keep every matching paper,
+    # then retain the normal daily quota for the remaining topics.
+    regular_published = [paper for paper in regular if paper.source == "pubmed"]
+    regular_preprints = [paper for paper in regular if paper.source != "pubmed"]
+    return priority + (regular_published + regular_preprints)[:max_paper_num]
 
 
 def _current_run_date(timezone_name: str) -> str:
@@ -260,6 +282,7 @@ class Executor:
             reranked_papers = select_with_published_priority(
                 reranked_papers,
                 self.config.executor.max_paper_num,
+                self.config.executor.get("priority_topic_keywords", []),
             )
             published_count = sum(
                 paper.source == "pubmed" for paper in reranked_papers

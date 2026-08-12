@@ -162,6 +162,8 @@ def render_email(papers:list[Paper]) -> str:
             metric = (
                 f"{p.journal_metric_name} {p.journal_metric_year} "
                 f"{p.journal_metric_value:.3f} · {p.journal_quartile}"
+                if p.journal_metric_value is not None
+                else "亨廷顿病专题全覆盖 · 不限期刊SJR"
             )
             identifiers = [f"PMID {p.pmid}" if p.pmid else "", f"DOI {p.doi}" if p.doi else ""]
             metadata = " · ".join(
@@ -201,7 +203,7 @@ def render_email(papers:list[Paper]) -> str:
 
     sections = [
         (
-            f"<h2>正式发表（PubMed，SJR ≥ 1.5）· {len(published)} 篇</h2>"
+            f"<h2>正式发表（PubMed：顶刊筛选 + 亨廷顿病专题全覆盖）· {len(published)} 篇</h2>"
             + "<br>".join(render_group(published))
         )
         if published

@@ -88,6 +88,18 @@ source:
         OR tauopath*[Title/Abstract]
         OR synucleinopath*[Title/Abstract]
       )
+    # All recent original Huntington disease research is included regardless
+    # of journal whitelist/SJR. Publication-type exclusions still apply.
+    priority_query: >-
+      (
+        "Huntington Disease"[Mesh]
+        OR "Huntington disease"[Title/Abstract]
+        OR "Huntington's disease"[Title/Abstract]
+        OR huntingtin[Title/Abstract]
+        OR "HTT gene"[Title/Abstract]
+        OR "mutant HTT"[Title/Abstract]
+        OR ("CAG repeat"[Title/Abstract] AND (Huntington*[Title/Abstract] OR huntingtin[Title/Abstract]))
+      )
 
 executor:
   debug: ${oc.decode:${oc.env:DEBUG,false}}
@@ -116,6 +128,8 @@ executor:
     - parkinsonism
     - movement disorder
     - Huntington
+    - huntingtin
+    - HTT
     - chorea
     - Lewy body
     - frontotemporal dementia
@@ -132,3 +146,9 @@ executor:
     - basal ganglia
   # Small, transparent ranking preference for higher-SJR PubMed papers.
   pubmed_sjr_bonus: 0.12
+  # These papers are additive and do not consume the ordinary 30-paper quota.
+  priority_topic_keywords:
+    - Huntington disease
+    - Huntington's disease
+    - huntingtin
+    - HTT
