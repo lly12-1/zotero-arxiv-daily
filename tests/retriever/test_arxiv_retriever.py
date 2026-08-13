@@ -43,9 +43,11 @@ def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
             source_url=lambda pid=pid: f"https://arxiv.org/e-print/{pid}",
         ))
 
+    client_kwargs = {}
+
     class FakeClient:
         def __init__(self, **kw):
-            pass
+            client_kwargs.update(kw)
         def results(self, search):
             return iter(fake_results)
 
@@ -61,6 +63,7 @@ def test_arxiv_retriever(config, mock_feedparser, monkeypatch):
 
     assert len(papers) == len(new_entries)
     assert set(p.title for p in papers) == set(e.title for e in new_entries)
+    assert client_kwargs == {"num_retries": 0, "delay_seconds": 3}
 
 
 def test_run_with_hard_timeout_returns_value():
