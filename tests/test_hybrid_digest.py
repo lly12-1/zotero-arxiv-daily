@@ -86,6 +86,37 @@ def test_pubmed_retriever_rejects_unlisted_or_review_articles(config):
     assert retriever.convert_to_paper(_pubmed_xml(publication_type="Review")) is None
 
 
+def test_pubmed_retriever_passes_api_key_to_search_and_fetch(config, monkeypatch):
+    with open_dict(config):
+        config.source.pubmed.api_key = "fake-ncbi-api-key"
+        config.source.pubmed.priority_query = None
+    retriever = PubmedRetriever(config)
+    requests = []
+
+    class FakeResponse:
+        content = (
+            b"<PubmedArticleSet>"
+            + ElementTree.tostring(_pubmed_xml())
+            + b"</PubmedArticleSet>"
+        )
+
+        @staticmethod
+        def json():
+            return {"esearchresult": {"idlist": ["12345678"]}}
+
+    def fake_request(endpoint, params):
+        requests.append((endpoint, params))
+        return FakeResponse()
+
+    monkeypatch.setattr(retriever, "_request", fake_request)
+
+    papers = retriever._retrieve_raw_papers()
+
+    assert len(papers) == 1
+    assert [endpoint for endpoint, _ in requests] == ["esearch.fcgi", "efetch.fcgi"]
+    assert all(params["api_key"] == "fake-ncbi-api-key" for _, params in requests)
+
+
 def test_huntington_priority_pubmed_includes_reviews_and_meta_analyses(config):
     with open_dict(config):
         config.source.pubmed.api_key = None

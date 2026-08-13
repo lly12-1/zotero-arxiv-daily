@@ -99,6 +99,7 @@ class PubmedRetriever(BaseRetriever):
             "id": ",".join(ids),
             "tool": "zotero_arxiv_daily",
         }
+        api_key = self.retriever_config.get("api_key")
         if api_key:
             fetch_params["api_key"] = str(api_key)
         root = ElementTree.fromstring(self._request("efetch.fcgi", fetch_params).content)
