@@ -109,3 +109,15 @@ def test_daily_completion_marker_persists(tmp_path):
 
     assert restored.completed_on("2026-07-31")
     assert not restored.completed_on("2026-08-01")
+
+
+def test_daily_delivery_marker_persists_separately_from_completion(tmp_path):
+    path = tmp_path / "sent-history.json"
+    history = SentHistory(path, now=NOW)
+    history.mark_delivered("2026-07-31")
+    history.save()
+
+    restored = SentHistory(path, now=NOW + timedelta(hours=1))
+
+    assert restored.delivered_on("2026-07-31")
+    assert not restored.completed_on("2026-07-31")

@@ -230,6 +230,7 @@ class Executor:
             return
         all_papers = []
         successful_source_count = 0
+        failed_sources = []
         for source, retriever in self.retrievers.items():
             logger.info(f"Retrieving {source} papers...")
             try:
@@ -241,6 +242,7 @@ class Executor:
                     f"Skipping unavailable source {source} after retries: "
                     f"{type(exc).__name__}: {exc}"
                 )
+                failed_sources.append(source)
                 continue
             successful_source_count += 1
             if len(papers) == 0:
@@ -321,6 +323,23 @@ class Executor:
             sent_history.save()
             logger.info("No papers available to seed; no email was sent")
             return
+        elif failed_sources:
+            sent_history.save()
+            logger.warning(
+                "No new papers were found from the available sources; "
+                f"daily completion was not marked because these sources failed: "
+                f"{', '.join(failed_sources)}"
+            )
+            return
+        elif sent_history.delivered_on(run_date):
+            sent_history.mark_completed(run_date)
+            sent_history.save()
+            logger.info(
+                "No additional papers found after an earlier partial delivery; "
+                f"marked daily digest complete for {run_date} without sending "
+                "a duplicate empty notification"
+            )
+            return
         elif not self.config.executor.send_empty:
             sent_history.mark_completed(run_date)
             sent_history.save()
@@ -335,9 +354,18 @@ class Executor:
             send_email(self.config, email_content)
         logger.info("Email sent successfully")
         sent_history.record(reranked_papers)
-        sent_history.mark_completed(run_date)
+        sent_history.mark_delivered(run_date)
+        if not failed_sources:
+            sent_history.mark_completed(run_date)
         sent_history.save()
-        logger.info(
-            f"Persisted sent history for {len(reranked_papers)} delivered papers "
-            f"and marked {run_date} complete"
-        )
+        if failed_sources:
+            logger.warning(
+                f"Persisted sent history for {len(reranked_papers)} delivered papers; "
+                "daily completion was not marked so the fallback can retry failed "
+                f"sources: {', '.join(failed_sources)}"
+            )
+        else:
+            logger.info(
+                f"Persisted sent history for {len(reranked_papers)} delivered papers "
+                f"and marked {run_date} complete"
+            )

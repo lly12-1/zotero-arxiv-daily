@@ -65,6 +65,7 @@ class SentHistory:
         payload = self._load()
         self.records = payload["records"]
         self.last_completed_date = payload.get("last_completed_date")
+        self.last_delivery_date = payload.get("last_delivery_date")
         self._prune()
 
     def _load(self) -> dict:
@@ -125,6 +126,12 @@ class SentHistory:
     def mark_completed(self, local_date: str) -> None:
         self.last_completed_date = local_date
 
+    def delivered_on(self, local_date: str) -> bool:
+        return self.last_delivery_date == local_date
+
+    def mark_delivered(self, local_date: str) -> None:
+        self.last_delivery_date = local_date
+
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.path.with_suffix(f"{self.path.suffix}.tmp")
@@ -133,6 +140,7 @@ class SentHistory:
             "updated_at": self.now.isoformat(),
             "retention_days": self.retention_days,
             "last_completed_date": self.last_completed_date,
+            "last_delivery_date": self.last_delivery_date,
             "records": self.records,
         }
         temp_path.write_text(

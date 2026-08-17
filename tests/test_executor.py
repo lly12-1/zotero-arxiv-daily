@@ -102,6 +102,13 @@ def test_filter_corpus_no_filters_returns_all():
 
 def test_run_skips_failed_source_and_uses_remaining_source(config, monkeypatch):
     from types import SimpleNamespace
+    from zotero_arxiv_daily.sent_history import SentHistory
+
+    run_date = "2026-07-31"
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor._current_run_date",
+        lambda _: run_date,
+    )
 
     executor = Executor.__new__(Executor)
     executor.config = config
@@ -144,6 +151,10 @@ def test_run_skips_failed_source_and_uses_remaining_source(config, monkeypatch):
 
     assert len(sent) == 1
     assert "Parkinson study" in sent[0]
+    history = SentHistory(config.executor.sent_history_path)
+    assert history.was_sent(paper)
+    assert history.delivered_on(run_date)
+    assert not history.completed_on(run_date)
 
 
 def test_run_does_not_mark_complete_when_all_sources_fail(config):
