@@ -186,6 +186,7 @@ class PubmedRetriever(BaseRetriever):
             journal_metric_value=metric.sjr if metric else None,
             journal_metric_year=metric.year if metric else None,
             journal_quartile=metric.quartile if metric else None,
+            special_topic="Huntington disease" if priority_paper else None,
         )
 
     def retrieve_papers(self) -> list[Paper]:

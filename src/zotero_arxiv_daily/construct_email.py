@@ -34,7 +34,7 @@ framework = """
 
 <br><br>
 <div style="color:#777;font-size:12px;">
-正式发表文献来自 PubMed，并按公开 SJR 快照筛选；预印本未经同行评议。取消订阅请移除 GitHub Actions 中的收件地址。
+正式发表文献来自 PubMed，并按公开 SJR 快照筛选；SJR 是期刊影响指标，不等同于 Clarivate JIF。预印本未经同行评议。取消订阅请移除 GitHub Actions 中的收件地址。
 </div>
 
 </body>
@@ -160,16 +160,22 @@ def render_email(papers:list[Paper]) -> str:
 
         if p.source == "pubmed":
             metric = (
-                f"{p.journal_metric_name} {p.journal_metric_year} "
+                f"期刊影响指标：{p.journal_metric_name} {p.journal_metric_year} "
                 f"{p.journal_metric_value:.3f} · {p.journal_quartile}"
                 if p.journal_metric_value is not None
-                else "亨廷顿病专题全覆盖 · 不限期刊SJR"
+                else "期刊影响指标：SJR未收录"
+            )
+            special_topic = (
+                "亨廷顿病专题 · 不受期刊SJR阈值限制"
+                if p.special_topic == "Huntington disease"
+                else ""
             )
             identifiers = [f"PMID {p.pmid}" if p.pmid else "", f"DOI {p.doi}" if p.doi else ""]
             metadata = " · ".join(
                 value
                 for value in [
                     "正式发表 · PubMed",
+                    special_topic,
                     escape(p.journal or ""),
                     metric,
                     escape(p.publication_date or ""),

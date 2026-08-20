@@ -144,6 +144,7 @@ def test_huntington_priority_pubmed_includes_reviews_and_meta_analyses(config):
     assert paper is not None
     assert paper.journal == "Journal Outside Whitelist"
     assert paper.journal_metric_value is None
+    assert paper.special_topic == "Huntington disease"
     assert review is not None
     assert meta_analysis is not None
 
@@ -182,6 +183,17 @@ def test_expanded_whitelist_matches_pubmed_journal_names():
         "Alzheimer's & dementia : the journal of the Alzheimer's Association": 3.600,
         "Journal of neurology, neurosurgery, and psychiatry": 3.379,
         "NPJ Parkinson's disease": 2.914,
+        "Translational Neurodegeneration": 3.850,
+        "Alzheimer's Research & Therapy": 2.709,
+        "Acta Neuropathol Commun": 2.588,
+        "Neurobiology of Disease": 2.009,
+        "Neurotherapeutics": 1.620,
+        "GeroScience": 1.564,
+        "Science Translational Medicine": 6.722,
+        "Trends in Neurosciences": 4.726,
+        "Nature Communications": 4.761,
+        "Science Advances": 4.324,
+        "Proceedings of the National Academy of Sciences of the United States of America": 3.414,
     }
 
     for journal, sjr in expected.items():
@@ -275,4 +287,21 @@ def test_email_separates_peer_reviewed_and_preprint_evidence():
     assert "正式发表（PubMed：顶刊筛选 + 亨廷顿病专题全覆盖）" in html
     assert "预印本（未经同行评议）" in html
     assert "PMID 12345678" in html
-    assert "SJR 2024 2.988 · Q1" in html
+    assert "期刊影响指标：SJR 2024 2.988 · Q1" in html
+
+
+def test_email_labels_huntington_topic_and_missing_metric():
+    huntington = _paper(
+        source="pubmed",
+        score=8.0,
+        tldr="亨廷顿病研究摘要",
+        pmid="87654321",
+        journal="Journal Outside Whitelist",
+        special_topic="Huntington disease",
+    )
+
+    html = render_email([huntington])
+
+    assert "亨廷顿病专题 · 不受期刊SJR阈值限制" in html
+    assert "期刊影响指标：SJR未收录" in html
+    assert "SJR 是期刊影响指标，不等同于 Clarivate JIF" in html

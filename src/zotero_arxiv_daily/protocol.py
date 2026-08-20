@@ -29,6 +29,7 @@ class Paper:
     journal_metric_value: Optional[float] = None
     journal_metric_year: Optional[int] = None
     journal_quartile: Optional[str] = None
+    special_topic: Optional[str] = None
 
     def _generate_tldr_with_llm(self, openai_client:OpenAI,llm_params:dict) -> str:
         lang = llm_params.get('language', 'English')

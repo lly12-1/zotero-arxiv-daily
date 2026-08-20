@@ -56,7 +56,8 @@ source:
     # Public, reproducible journal-quality proxy. This is SJR, not JIF.
     journal_metrics_file: config/neurology_journals_sjr_2024.csv
     min_sjr: 1.5
-    lookback_days: 3
+    # Seven days catches delayed PubMed indexing; persistent history prevents repeats.
+    lookback_days: 7
     retmax: 200
     api_key: ${oc.env:NCBI_API_KEY,null}
     exclude_publication_types:
@@ -91,8 +92,16 @@ source:
         OR "multiple system atrophy"[Title/Abstract]
         OR "progressive supranuclear palsy"[Title/Abstract]
         OR "corticobasal degeneration"[Title/Abstract]
+        OR "Amyotrophic Lateral Sclerosis"[Mesh]
+        OR "amyotrophic lateral sclerosis"[Title/Abstract]
+        OR "motor neuron disease*"[Title/Abstract]
+        OR "Prion Diseases"[Mesh]
+        OR "prion disease*"[Title/Abstract]
+        OR "Spinocerebellar Degenerations"[Mesh]
+        OR "spinocerebellar ataxia*"[Title/Abstract]
         OR tauopath*[Title/Abstract]
         OR synucleinopath*[Title/Abstract]
+        OR "TDP-43 proteinopath*"[Title/Abstract]
       )
     # All recent Huntington disease research and evidence syntheses are
     # included regardless of journal whitelist/SJR.
@@ -140,12 +149,16 @@ executor:
     - Lewy body
     - frontotemporal dementia
     - amyotrophic lateral sclerosis
+    - motor neuron disease
+    - prion disease
+    - spinocerebellar ataxia
     - multiple system atrophy
     - progressive supranuclear palsy
     - corticobasal degeneration
     - tauopathy
     - synucleinopathy
     - TDP-43
+    - TDP-43 proteinopathy
     - amyloid
     - alpha-synuclein
     - dopaminergic
