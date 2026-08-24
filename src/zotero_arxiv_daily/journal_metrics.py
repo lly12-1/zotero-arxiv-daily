@@ -46,6 +46,20 @@ def load_journal_metrics(path_value: str) -> dict[str, JournalMetric]:
     return metrics
 
 
+def load_journal_search_names(path_value: str) -> list[str]:
+    """Return canonical and alias names suitable for a PubMed Journal query."""
+    path = resolve_metrics_path(path_value)
+    names: list[str] = []
+    with path.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            names.extend(
+                name.strip()
+                for name in [row["journal"], *row.get("aliases", "").split("|")]
+                if name.strip()
+            )
+    return list(dict.fromkeys(names))
+
+
 def match_journal_metric(
     journal: str,
     metrics: dict[str, JournalMetric],

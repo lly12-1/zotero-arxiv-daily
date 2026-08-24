@@ -1,4 +1,5 @@
 from xml.etree import ElementTree
+from types import SimpleNamespace
 
 from omegaconf import open_dict
 
@@ -113,8 +114,86 @@ def test_pubmed_retriever_passes_api_key_to_search_and_fetch(config, monkeypatch
     papers = retriever._retrieve_raw_papers()
 
     assert len(papers) == 1
-    assert [endpoint for endpoint, _ in requests] == ["esearch.fcgi", "efetch.fcgi"]
+    assert [endpoint for endpoint, _ in requests] == [
+        "esearch.fcgi",
+        "esearch.fcgi",
+        "efetch.fcgi",
+    ]
     assert all(params["api_key"] == "fake-ncbi-api-key" for _, params in requests)
+    search_params = [params for endpoint, params in requests if endpoint == "esearch.fcgi"]
+    assert [(params["datetype"], params["reldate"]) for params in search_params] == [
+        ("pdat", 7),
+        ("edat", 14),
+    ]
+
+
+def test_pubmed_search_unions_publication_and_entry_date_results(config, monkeypatch):
+    with open_dict(config):
+        config.source.pubmed.api_key = None
+        config.source.pubmed.entry_lookback_days = 14
+    retriever = PubmedRetriever(config)
+
+    class FakeResponse:
+        def __init__(self, ids):
+            self.ids = ids
+
+        def json(self):
+            return {"esearchresult": {"idlist": self.ids}}
+
+    def fake_request(endpoint, params):
+        assert endpoint == "esearch.fcgi"
+        if params["datetype"] == "pdat":
+            return FakeResponse(["published-recently", "seen-in-both"])
+        return FakeResponse(["indexed-recently", "seen-in-both"])
+
+    monkeypatch.setattr(retriever, "_request", fake_request)
+
+    assert retriever._search_ids("Alzheimer disease") == [
+        "published-recently",
+        "seen-in-both",
+        "indexed-recently",
+    ]
+
+
+def test_pubmed_general_search_is_restricted_to_metric_journals(config, monkeypatch):
+    with open_dict(config):
+        config.source.pubmed.api_key = None
+        config.source.pubmed.priority_query = None
+    retriever = PubmedRetriever(config)
+    searched_terms = []
+
+    def fake_search(term):
+        searched_terms.append(term)
+        return []
+
+    monkeypatch.setattr(retriever, "_search_ids", fake_search)
+
+    assert retriever._retrieve_raw_papers() == []
+    assert len(searched_terms) == 1
+    assert '"Alzheimer\'s & dementia : the journal of the Alzheimer\'s Association"[Journal]' in searched_terms[0]
+    assert '"Nature Neuroscience"[Journal]' in searched_terms[0]
+
+
+def test_pubmed_uses_post_for_long_search_terms(config, monkeypatch):
+    with open_dict(config):
+        config.source.pubmed.api_key = None
+        config.source.pubmed.retry_attempts = 1
+    retriever = PubmedRetriever(config)
+    calls = []
+    response = SimpleNamespace(raise_for_status=lambda: None)
+
+    def fake_post(url, data, timeout):
+        calls.append(("post", url, data, timeout))
+        return response
+
+    def fail_get(*args, **kwargs):
+        raise AssertionError("long PubMed searches must not use GET")
+
+    monkeypatch.setattr(retriever.session, "post", fake_post)
+    monkeypatch.setattr(retriever.session, "get", fail_get)
+
+    assert retriever._request("esearch.fcgi", {"term": "A" * 1501}) is response
+    assert calls[0][0] == "post"
 
 
 def test_huntington_priority_pubmed_includes_reviews_and_meta_analyses(config):

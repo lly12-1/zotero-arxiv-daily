@@ -56,9 +56,15 @@ source:
     # Public, reproducible journal-quality proxy. This is SJR, not JIF.
     journal_metrics_file: config/neurology_journals_sjr_2024.csv
     min_sjr: 1.5
-    # Seven days catches delayed PubMed indexing; persistent history prevents repeats.
+    # Keep genuinely recent publication dates in scope.
     lookback_days: 7
+    # PubMed can index a paper weeks after its publisher date. Query newly entered
+    # records as a second window, then let persistent history remove duplicates.
+    entry_lookback_days: 14
     retmax: 200
+    # Apply the same journal whitelist in PubMed itself. This prevents broad
+    # disease queries from filling retmax before delayed-indexed target journals.
+    restrict_search_to_journal_metrics: true
     api_key: ${oc.env:NCBI_API_KEY,null}
     exclude_publication_types:
       - Review

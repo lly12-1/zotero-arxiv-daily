@@ -8,7 +8,11 @@ import requests
 from loguru import logger
 
 from .base import BaseRetriever, register_retriever
-from ..journal_metrics import load_journal_metrics, match_journal_metric
+from ..journal_metrics import (
+    load_journal_metrics,
+    load_journal_search_names,
+    match_journal_metric,
+)
 from ..protocol import Paper
 
 
@@ -39,6 +43,9 @@ class PubmedRetriever(BaseRetriever):
         self.session = requests.Session()
         self.session.trust_env = False
         self.metrics = load_journal_metrics(self.retriever_config.journal_metrics_file)
+        self.journal_search_names = load_journal_search_names(
+            self.retriever_config.journal_metrics_file
+        )
         self.min_sjr = float(self.retriever_config.min_sjr)
         self.priority_pmids: set[str] = set()
 
@@ -47,11 +54,11 @@ class PubmedRetriever(BaseRetriever):
         attempts = int(self.retriever_config.get("retry_attempts", 4))
         for attempt in range(1, attempts + 1):
             try:
-                response = self.session.get(
-                    f"{EUTILS_BASE}/{endpoint}",
-                    params=params,
-                    timeout=timeout,
-                )
+                url = f"{EUTILS_BASE}/{endpoint}"
+                if endpoint == "esearch.fcgi" and len(str(params.get("term", ""))) > 1500:
+                    response = self.session.post(url, data=params, timeout=timeout)
+                else:
+                    response = self.session.get(url, params=params, timeout=timeout)
                 response.raise_for_status()
                 return response
             except requests.RequestException:
@@ -65,24 +72,42 @@ class PubmedRetriever(BaseRetriever):
         raise RuntimeError("PubMed request failed")
 
     def _search_ids(self, term: str) -> list[str]:
-        params: dict[str, Any] = {
-            "db": "pubmed",
-            "retmode": "json",
-            "sort": "pub date",
-            "retmax": int(self.retriever_config.get("retmax", 200)),
-            "reldate": int(self.retriever_config.get("lookback_days", 3)),
-            "datetype": "pdat",
-            "term": term,
-            "tool": "zotero_arxiv_daily",
-        }
-        api_key = self.retriever_config.get("api_key")
-        if api_key:
-            params["api_key"] = str(api_key)
-        search = self._request("esearch.fcgi", params).json()
-        return search.get("esearchresult", {}).get("idlist", [])
+        date_windows = [
+            ("pdat", int(self.retriever_config.get("lookback_days", 3))),
+        ]
+        entry_lookback_days = int(
+            self.retriever_config.get("entry_lookback_days", 0)
+        )
+        if entry_lookback_days > 0:
+            date_windows.append(("edat", entry_lookback_days))
+
+        ids: list[str] = []
+        for date_type, lookback_days in date_windows:
+            params: dict[str, Any] = {
+                "db": "pubmed",
+                "retmode": "json",
+                "sort": "pub date",
+                "retmax": int(self.retriever_config.get("retmax", 200)),
+                "reldate": lookback_days,
+                "datetype": date_type,
+                "term": term,
+                "tool": "zotero_arxiv_daily",
+            }
+            api_key = self.retriever_config.get("api_key")
+            if api_key:
+                params["api_key"] = str(api_key)
+            search = self._request("esearch.fcgi", params).json()
+            ids.extend(search.get("esearchresult", {}).get("idlist", []))
+        return list(dict.fromkeys(ids))
 
     def _retrieve_raw_papers(self) -> list[ElementTree.Element]:
-        ids = self._search_ids(str(self.retriever_config.query))
+        query = str(self.retriever_config.query)
+        if self.retriever_config.get("restrict_search_to_journal_metrics", True):
+            journal_query = " OR ".join(
+                f'"{name}"[Journal]' for name in self.journal_search_names
+            )
+            query = f"({query}) AND ({journal_query})"
+        ids = self._search_ids(query)
         priority_query = self.retriever_config.get("priority_query")
         if priority_query:
             priority_ids = self._search_ids(str(priority_query))
