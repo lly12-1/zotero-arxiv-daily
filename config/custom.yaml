@@ -61,10 +61,32 @@ source:
     # PubMed can index a paper weeks after its publisher date. Query newly entered
     # records as a second window, then let persistent history remove duplicates.
     entry_lookback_days: 14
-    retmax: 200
+    retmax: 500
     # Apply the same journal whitelist in PubMed itself. This prevents broad
     # disease queries from filling retmax before delayed-indexed target journals.
     restrict_search_to_journal_metrics: true
+    # These specialist journals are retrieved in full. General/multidisciplinary
+    # journals remain constrained by the neurodegeneration topic query.
+    core_journals:
+      - The Lancet Neurology
+      - JAMA Neurology
+      - Nature Reviews Neurology
+      - Molecular Neurodegeneration
+      - Brain
+      - Acta Neuropathologica
+      - Annals of Neurology
+      - Alzheimer's and Dementia
+      - Journal of Neurology, Neurosurgery and Psychiatry
+      - Movement Disorders
+      - npj Parkinson's Disease
+      - Neurology
+      - Brain Communications
+      - Current Opinion in Neurology
+      - Translational Neurodegeneration
+      - Alzheimer's Research and Therapy
+      - Acta Neuropathologica Communications
+      - Neurobiology of Disease
+      - Neurotherapeutics
     api_key: ${oc.env:NCBI_API_KEY,null}
     exclude_publication_types:
       - Review
@@ -77,6 +99,10 @@ source:
     # Huntington disease coverage also includes evidence syntheses, while
     # editorials, comments, letters and news remain excluded.
     priority_allowed_publication_types:
+      - Review
+      - Systematic Review
+      - Meta-Analysis
+    core_allowed_publication_types:
       - Review
       - Systematic Review
       - Meta-Analysis
@@ -132,6 +158,8 @@ executor:
   # Restored and saved by GitHub Actions across daily runs.
   sent_history_path: ${oc.env:SENT_HISTORY_PATH,.state/sent-history.json}
   sent_history_days: 30
+  pending_max_papers: 2000
+  journal_zero_alert_days: 3
   seed_history_only: ${oc.decode:${oc.env:SEED_HISTORY_ONLY,false}}
   seed_exclude_pmids: ${oc.env:SEED_EXCLUDE_PMIDS,""}
   daily_timezone: Asia/Shanghai

@@ -341,6 +341,63 @@ def test_mark_today_complete_only_skips_retrieval(config, monkeypatch):
     assert history.completed_on(run_date)
 
 
+def test_run_persists_unselected_papers_in_pending_queue(config, monkeypatch):
+    from types import SimpleNamespace
+    from omegaconf import open_dict
+    from zotero_arxiv_daily.sent_history import SentHistory
+
+    with open_dict(config):
+        config.executor.max_paper_num = 2
+        config.executor.topic_keywords = []
+    executor = Executor.__new__(Executor)
+    executor.config = config
+    executor.openai_client = SimpleNamespace()
+    executor.fetch_zotero_corpus = lambda: [
+        CorpusPaper(
+            title="Parkinson corpus",
+            abstract="Parkinson disease",
+            added_date=datetime(2026, 1, 1),
+            paths=[],
+        )
+    ]
+    executor.filter_corpus = lambda corpus: corpus
+    titles = [
+        "Alpha-synuclein aggregation in Parkinson disease",
+        "Tau biomarkers predict Alzheimer progression",
+        "Microglial states in Lewy body disease",
+    ]
+    papers = [
+        Paper(
+            source="arxiv",
+            title=titles[index],
+            authors=["Doe J"],
+            abstract="Parkinson disease",
+            url=f"https://arxiv.org/abs/2608.0000{index}",
+            score=10.0 - index,
+        )
+        for index in range(3)
+    ]
+    for paper in papers:
+        paper.generate_tldr = lambda *args, item=paper: setattr(item, "tldr", "summary")
+        paper.generate_affiliations = lambda *args: None
+    executor.retrievers = {
+        "arxiv": SimpleNamespace(retrieve_papers=lambda: papers),
+    }
+    executor.reranker = SimpleNamespace(rerank=lambda candidates, corpus: candidates)
+    sent = []
+    monkeypatch.setattr(
+        "zotero_arxiv_daily.executor.send_email",
+        lambda cfg, body: sent.append(body),
+    )
+
+    executor.run()
+
+    assert len(sent) == 1
+    history = SentHistory(config.executor.sent_history_path)
+    assert len(history.get_pending()) == 1
+    assert history.get_pending()[0].title == titles[2]
+
+
 # ---------------------------------------------------------------------------
 # fetch_zotero_corpus
 # ---------------------------------------------------------------------------

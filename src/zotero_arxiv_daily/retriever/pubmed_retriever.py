@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from time import sleep
 from typing import Any
 from xml.etree import ElementTree
@@ -12,6 +13,7 @@ from ..journal_metrics import (
     load_journal_metrics,
     load_journal_search_names,
     match_journal_metric,
+    normalize_journal_name,
 )
 from ..protocol import Paper
 
@@ -46,8 +48,26 @@ class PubmedRetriever(BaseRetriever):
         self.journal_search_names = load_journal_search_names(
             self.retriever_config.journal_metrics_file
         )
+        self.core_journals = [
+            str(value) for value in self.retriever_config.get("core_journals", [])
+        ]
+        self.core_journal_search_names = load_journal_search_names(
+            self.retriever_config.journal_metrics_file,
+            self.core_journals,
+        )
+        core_normalized = {
+            normalize_journal_name(value) for value in self.core_journal_search_names
+        }
+        self.general_journal_search_names = [
+            name
+            for name in self.journal_search_names
+            if normalize_journal_name(name) not in core_normalized
+        ]
         self.min_sjr = float(self.retriever_config.min_sjr)
         self.priority_pmids: set[str] = set()
+        self.core_pmids: set[str] = set()
+        self.raw_journal_counts: Counter[str] = Counter()
+        self.source_filtered_journal_counts: Counter[str] = Counter()
 
     def _request(self, endpoint: str, params: dict[str, Any]) -> requests.Response:
         timeout = int(self.retriever_config.get("timeout_seconds", 30))
@@ -55,7 +75,11 @@ class PubmedRetriever(BaseRetriever):
         for attempt in range(1, attempts + 1):
             try:
                 url = f"{EUTILS_BASE}/{endpoint}"
-                if endpoint == "esearch.fcgi" and len(str(params.get("term", ""))) > 1500:
+                long_payload = max(
+                    len(str(params.get("term", ""))),
+                    len(str(params.get("id", ""))),
+                ) > 1500
+                if endpoint in {"esearch.fcgi", "efetch.fcgi"} and long_payload:
                     response = self.session.post(url, data=params, timeout=timeout)
                 else:
                     response = self.session.get(url, params=params, timeout=timeout)
@@ -101,13 +125,23 @@ class PubmedRetriever(BaseRetriever):
         return list(dict.fromkeys(ids))
 
     def _retrieve_raw_papers(self) -> list[ElementTree.Element]:
-        query = str(self.retriever_config.query)
+        topic_query = str(self.retriever_config.query)
         if self.retriever_config.get("restrict_search_to_journal_metrics", True):
-            journal_query = " OR ".join(
-                f'"{name}"[Journal]' for name in self.journal_search_names
+            general_journal_query = " OR ".join(
+                f'"{name}"[Journal]' for name in self.general_journal_search_names
             )
-            query = f"({query}) AND ({journal_query})"
-        ids = self._search_ids(query)
+            general_query = f"({topic_query}) AND ({general_journal_query})"
+        else:
+            general_query = topic_query
+        ids = self._search_ids(general_query)
+
+        if self.core_journal_search_names:
+            core_query = " OR ".join(
+                f'"{name}"[Journal]' for name in self.core_journal_search_names
+            )
+            core_ids = self._search_ids(f"({core_query})")
+            self.core_pmids = set(core_ids)
+            ids = list(dict.fromkeys(core_ids + ids))
         priority_query = self.retriever_config.get("priority_query")
         if priority_query:
             priority_ids = self._search_ids(str(priority_query))
@@ -146,15 +180,18 @@ class PubmedRetriever(BaseRetriever):
         }
         pmid = _node_text(citation.find("./PMID"))
         priority_paper = pmid in self.priority_pmids
-        if priority_paper:
-            allowed_priority_types = {
+        core_paper = pmid in self.core_pmids
+        if priority_paper or core_paper:
+            allowed_key = (
+                "priority_allowed_publication_types"
+                if priority_paper
+                else "core_allowed_publication_types"
+            )
+            allowed_types = {
                 str(value).casefold()
-                for value in self.retriever_config.get(
-                    "priority_allowed_publication_types",
-                    [],
-                )
+                for value in self.retriever_config.get(allowed_key, [])
             }
-            excluded -= allowed_priority_types
+            excluded -= allowed_types
         if publication_types & excluded:
             return None
 
@@ -212,16 +249,27 @@ class PubmedRetriever(BaseRetriever):
             journal_metric_year=metric.year if metric else None,
             journal_quartile=metric.quartile if metric else None,
             special_topic="Huntington disease" if priority_paper else None,
+            topic_bypass=priority_paper or core_paper,
         )
 
     def retrieve_papers(self) -> list[Paper]:
+        self.raw_journal_counts.clear()
+        self.source_filtered_journal_counts.clear()
         papers: list[Paper] = []
         for raw_paper in self._retrieve_raw_papers():
+            article = raw_paper.find("./MedlineCitation/Article")
+            raw_journal = _node_text(article.find("./Journal/Title")) if article is not None else ""
+            metric = match_journal_metric(raw_journal, self.metrics)
+            journal = metric.journal if metric else raw_journal or "Unknown journal"
+            self.raw_journal_counts[journal] += 1
             try:
                 paper = self.convert_to_paper(raw_paper)
             except Exception as exc:
                 logger.warning(f"Skipping malformed PubMed record: {exc}")
+                self.source_filtered_journal_counts[journal] += 1
                 continue
             if paper is not None:
                 papers.append(paper)
+            else:
+                self.source_filtered_journal_counts[journal] += 1
         return papers

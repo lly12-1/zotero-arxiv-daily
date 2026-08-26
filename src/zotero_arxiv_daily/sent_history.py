@@ -3,10 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import asdict, fields
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .dedup import normalize_doi, normalize_title
+from .dedup import deduplicate_papers, normalize_doi, normalize_title
 from .protocol import Paper
 
 
@@ -66,6 +67,14 @@ class SentHistory:
         self.records = payload["records"]
         self.last_completed_date = payload.get("last_completed_date")
         self.last_delivery_date = payload.get("last_delivery_date")
+        paper_fields = {field.name for field in fields(Paper)}
+        self.pending_papers = [
+            Paper(**{key: value for key, value in item.items() if key in paper_fields})
+            for item in payload.get("pending_papers", [])
+            if isinstance(item, dict)
+        ]
+        self.journal_zero_streaks = payload.get("journal_zero_streaks", {})
+        self.journal_last_checked = payload.get("journal_last_checked", {})
         self._prune()
 
     def _load(self) -> dict:
@@ -120,6 +129,36 @@ class SentHistory:
             for fingerprint in paper_fingerprints(paper):
                 self.records[fingerprint] = record
 
+    def get_pending(self) -> list[Paper]:
+        pending, _ = self.filter_unsent(self.pending_papers)
+        return pending
+
+    def set_pending(self, papers: list[Paper], max_papers: int = 2000) -> None:
+        unsent, _ = self.filter_unsent(papers)
+        self.pending_papers = deduplicate_papers(unsent)[:max_papers]
+
+    def update_journal_zero_streaks(
+        self,
+        local_date: str,
+        core_journals: list[str],
+        retrieved_counts: dict[str, int],
+        alert_after_days: int,
+    ) -> list[dict[str, int | str]]:
+        alerts: list[dict[str, int | str]] = []
+        for journal in core_journals:
+            count = int(retrieved_counts.get(journal, 0))
+            last_checked = self.journal_last_checked.get(journal)
+            streak = int(self.journal_zero_streaks.get(journal, 0))
+            if count > 0:
+                streak = 0
+            elif last_checked != local_date:
+                streak += 1
+            self.journal_zero_streaks[journal] = streak
+            self.journal_last_checked[journal] = local_date
+            if streak >= alert_after_days:
+                alerts.append({"journal": journal, "zero_days": streak})
+        return alerts
+
     def completed_on(self, local_date: str) -> bool:
         return self.last_completed_date == local_date
 
@@ -142,6 +181,9 @@ class SentHistory:
             "last_completed_date": self.last_completed_date,
             "last_delivery_date": self.last_delivery_date,
             "records": self.records,
+            "pending_papers": [asdict(paper) for paper in self.pending_papers],
+            "journal_zero_streaks": self.journal_zero_streaks,
+            "journal_last_checked": self.journal_last_checked,
         }
         temp_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",

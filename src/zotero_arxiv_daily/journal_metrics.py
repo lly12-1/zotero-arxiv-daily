@@ -46,12 +46,22 @@ def load_journal_metrics(path_value: str) -> dict[str, JournalMetric]:
     return metrics
 
 
-def load_journal_search_names(path_value: str) -> list[str]:
+def load_journal_search_names(
+    path_value: str,
+    journals: list[str] | None = None,
+) -> list[str]:
     """Return canonical and alias names suitable for a PubMed Journal query."""
     path = resolve_metrics_path(path_value)
+    selected = (
+        {normalize_journal_name(journal) for journal in journals}
+        if journals is not None
+        else None
+    )
     names: list[str] = []
     with path.open(encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
+            if selected is not None and normalize_journal_name(row["journal"]) not in selected:
+                continue
             names.extend(
                 name.strip()
                 for name in [row["journal"], *row.get("aliases", "").split("|")]

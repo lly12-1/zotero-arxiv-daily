@@ -1,9 +1,10 @@
 from loguru import logger
+from collections import Counter
 from pyzotero import zotero
 from omegaconf import DictConfig, ListConfig
 from .utils import glob_match
 from .retriever import get_retriever_cls
-from .protocol import CorpusPaper
+from .protocol import CorpusPaper, Paper
 from .dedup import deduplicate_papers
 from .sent_history import SentHistory
 import random
@@ -28,6 +29,9 @@ def filter_topic_papers(papers, keywords) -> list:
     normalized_keywords = [_normalized_search_text(str(keyword)) for keyword in keywords]
     selected = []
     for paper in papers:
+        if paper.topic_bypass:
+            selected.append(paper)
+            continue
         text = _normalized_search_text(f"{paper.title} {paper.abstract}")
         padded = f" {text} "
         if any(f" {keyword} " in padded for keyword in normalized_keywords if keyword):
@@ -74,6 +78,47 @@ def select_with_published_priority(
 
 def _current_run_date(timezone_name: str) -> str:
     return datetime.now(ZoneInfo(timezone_name)).date().isoformat()
+
+
+def _journal_counts(papers: list[Paper]) -> Counter[str]:
+    return Counter(
+        paper.journal
+        for paper in papers
+        if paper.source == "pubmed" and paper.journal
+    )
+
+
+def _journal_catalog(pubmed_retriever) -> list[str]:
+    if pubmed_retriever is None or not hasattr(pubmed_retriever, "metrics"):
+        return []
+    return list(
+        dict.fromkeys(metric.journal for metric in pubmed_retriever.metrics.values())
+    )
+
+
+def _build_journal_report(
+    journals: list[str],
+    core_journals: list[str],
+    retrieved: Counter[str],
+    eligible: Counter[str],
+    sent: Counter[str],
+    pending: Counter[str],
+) -> list[dict[str, int | str | bool]]:
+    core_set = set(core_journals)
+    return [
+        {
+            "journal": journal,
+            "core": journal in core_set,
+            "retrieved": int(retrieved.get(journal, 0)),
+            "filtered": max(
+                int(retrieved.get(journal, 0)) - int(eligible.get(journal, 0)),
+                0,
+            ),
+            "sent": int(sent.get(journal, 0)),
+            "pending": int(pending.get(journal, 0)),
+        }
+        for journal in journals
+    ]
 
 
 def normalize_path_patterns(patterns: list[str] | ListConfig | None, config_key: str) -> list[str] | None:
@@ -255,6 +300,29 @@ class Executor:
                 "All configured paper sources failed; daily completion was not marked"
             )
         logger.info(f"Total {len(all_papers)} papers retrieved from all sources")
+        pubmed_retriever = self.retrievers.get("pubmed")
+        journal_order = _journal_catalog(pubmed_retriever)
+        core_journals = (
+            list(getattr(pubmed_retriever, "core_journals", []))
+            if pubmed_retriever is not None
+            else []
+        )
+        retrieved_journal_counts = Counter(
+            getattr(pubmed_retriever, "raw_journal_counts", {})
+        )
+        journal_alerts = []
+        if pubmed_retriever is not None and "pubmed" not in failed_sources:
+            journal_alerts = sent_history.update_journal_zero_streaks(
+                run_date,
+                core_journals,
+                retrieved_journal_counts,
+                int(self.config.executor.get("journal_zero_alert_days", 3)),
+            )
+            for alert in journal_alerts:
+                logger.warning(
+                    f"Core journal zero-retrieval alert: {alert['journal']} has "
+                    f"reported zero records for {alert['zero_days']} consecutive days"
+                )
         topic_keywords = self.config.executor.get("topic_keywords", [])
         if topic_keywords:
             before_filter = len(all_papers)
@@ -273,6 +341,23 @@ class Executor:
             f"Sent-history filter excluded {previously_sent_count} previously "
             f"delivered papers; {len(all_papers)} remain"
         )
+        current_eligible_journal_counts = _journal_counts(all_papers)
+        pending_papers = sent_history.get_pending()
+        if pending_papers:
+            logger.info(
+                f"Restored {len(pending_papers)} papers from the persistent pending queue"
+            )
+        all_papers = deduplicate_papers(pending_papers + all_papers)
+        all_papers, pending_sent_count = sent_history.filter_unsent(all_papers)
+        if pending_sent_count:
+            logger.info(
+                f"Removed {pending_sent_count} already delivered papers while merging "
+                "the pending queue"
+            )
+        sent_history.set_pending(
+            all_papers,
+            int(self.config.executor.get("pending_max_papers", 2000)),
+        )
         reranked_papers = []
         if len(all_papers) > 0:
             logger.info("Reranking papers...")
@@ -285,6 +370,14 @@ class Executor:
                 reranked_papers,
                 self.config.executor.max_paper_num,
                 self.config.executor.get("priority_topic_keywords", []),
+            )
+            selected_ids = {id(paper) for paper in reranked_papers}
+            remaining_papers = [
+                paper for paper in all_papers if id(paper) not in selected_ids
+            ]
+            sent_history.set_pending(
+                remaining_papers,
+                int(self.config.executor.get("pending_max_papers", 2000)),
             )
             published_count = sum(
                 paper.source == "pubmed" for paper in reranked_papers
@@ -346,9 +439,39 @@ class Executor:
             logger.info("No new papers found. No email will be sent.")
             logger.info(f"Marked daily digest complete for {run_date}")
             return
+        sent_journal_counts = _journal_counts(reranked_papers)
+        pending_journal_counts = _journal_counts(sent_history.get_pending())
+        journal_report = _build_journal_report(
+            journal_order,
+            core_journals,
+            retrieved_journal_counts,
+            current_eligible_journal_counts,
+            sent_journal_counts,
+            pending_journal_counts,
+        )
+        logger.info(
+            "Journal report: "
+            + "; ".join(
+                f"{row['journal']} retrieved={row['retrieved']} "
+                f"filtered={row['filtered']} sent={row['sent']} "
+                f"pending={row['pending']}"
+                for row in journal_report
+            )
+        )
         logger.info("Sending email...")
-        email_content = render_email(reranked_papers)
-        if len(reranked_papers) == 0:
+        email_content = render_email(
+            reranked_papers,
+            journal_report=journal_report,
+            journal_alerts=journal_alerts,
+            pending_count=len(sent_history.get_pending()),
+        )
+        if journal_alerts:
+            send_email(
+                self.config,
+                email_content,
+                subject="⚠️ 核心期刊抓取报警及今日文献推送",
+            )
+        elif len(reranked_papers) == 0:
             send_email(self.config, email_content, subject="今日无新增文献")
         else:
             send_email(self.config, email_content)

@@ -130,9 +130,61 @@ def get_stars(score:float):
         return '<div class="star-wrapper">'+full_star * full_star_num + half_star * half_star_num + '</div>'
 
 
-def render_email(papers:list[Paper]) -> str:
-    if len(papers) == 0 :
-        return framework.replace('__CONTENT__', get_empty_html())
+def _render_journal_report(
+    journal_report: list[dict] | None,
+    journal_alerts: list[dict] | None,
+    pending_count: int,
+) -> str:
+    parts = []
+    if journal_alerts:
+        alerts = "<br>".join(
+            f"⚠️ {escape(str(alert['journal']))}：连续 "
+            f"{int(alert['zero_days'])} 天抓取为 0"
+            for alert in journal_alerts
+        )
+        parts.append(
+            '<div style="border:1px solid #d9534f;background:#fff3f3;'
+            'padding:12px;margin:16px 0;color:#a94442;">'
+            f"<strong>核心期刊抓取报警</strong><br>{alerts}</div>"
+        )
+    if journal_report:
+        rows = []
+        for row in journal_report:
+            label = "核心刊" if row.get("core") else "主题刊"
+            rows.append(
+                "<tr>"
+                f"<td style='padding:5px;border:1px solid #ddd;'>{escape(str(row['journal']))}</td>"
+                f"<td style='padding:5px;border:1px solid #ddd;'>{label}</td>"
+                f"<td style='padding:5px;border:1px solid #ddd;text-align:center;'>{int(row['retrieved'])}</td>"
+                f"<td style='padding:5px;border:1px solid #ddd;text-align:center;'>{int(row['filtered'])}</td>"
+                f"<td style='padding:5px;border:1px solid #ddd;text-align:center;'>{int(row['sent'])}</td>"
+                f"<td style='padding:5px;border:1px solid #ddd;text-align:center;'>{int(row['pending'])}</td>"
+                "</tr>"
+            )
+        parts.append(
+            "<h2>目标期刊运行日报</h2>"
+            "<p style='font-size:13px;color:#666;'>抓取为本次PubMed原始记录数；过滤包含文章类型、"
+            "主题、去重及已发送历史；待发送队列会跨天保留。"
+            f" 当前总待发送：{pending_count} 篇。</p>"
+            "<table style='border-collapse:collapse;width:100%;font-size:12px;'>"
+            "<tr><th style='padding:5px;border:1px solid #ddd;'>期刊</th>"
+            "<th style='padding:5px;border:1px solid #ddd;'>策略</th>"
+            "<th style='padding:5px;border:1px solid #ddd;'>抓取</th>"
+            "<th style='padding:5px;border:1px solid #ddd;'>过滤</th>"
+            "<th style='padding:5px;border:1px solid #ddd;'>发送</th>"
+            "<th style='padding:5px;border:1px solid #ddd;'>待发送</th></tr>"
+            + "".join(rows)
+            + "</table>"
+        )
+    return "<br>".join(parts)
+
+
+def render_email(
+    papers: list[Paper],
+    journal_report: list[dict] | None = None,
+    journal_alerts: list[dict] | None = None,
+    pending_count: int = 0,
+) -> str:
 
     published = [paper for paper in papers if paper.source == "pubmed"]
     preprints = [paper for paper in papers if paper.source != "pubmed"]
@@ -221,9 +273,16 @@ def render_email(papers:list[Paper]) -> str:
         if preprints
         else "",
     ]
-    summary = (
-        f"<p><strong>今日共 {len(papers)} 篇</strong>：正式发表 {len(published)} 篇，"
-        f"预印本 {len(preprints)} 篇；总上限 30 篇。</p>"
-    )
-    content = summary + "<br>".join(section for section in sections if section)
+    if papers:
+        summary = (
+            f"<p><strong>今日共 {len(papers)} 篇</strong>：正式发表 {len(published)} 篇，"
+            f"预印本 {len(preprints)} 篇；普通文献上限30篇，亨廷顿病专题另行全量保留。"
+            f" 跨日待发送 {pending_count} 篇。</p>"
+        )
+        content = summary + "<br>".join(section for section in sections if section)
+    else:
+        content = get_empty_html()
+    report = _render_journal_report(journal_report, journal_alerts, pending_count)
+    if report:
+        content += "<br>" + report
     return framework.replace('__CONTENT__', content)

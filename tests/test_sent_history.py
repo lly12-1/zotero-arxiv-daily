@@ -121,3 +121,37 @@ def test_daily_delivery_marker_persists_separately_from_completion(tmp_path):
 
     assert restored.delivered_on("2026-07-31")
     assert not restored.completed_on("2026-07-31")
+
+
+def test_pending_queue_persists_until_paper_is_delivered(tmp_path):
+    path = tmp_path / "sent-history.json"
+    paper = _paper(title="Queued Parkinson paper")
+    history = SentHistory(path, now=NOW)
+    history.set_pending([paper])
+    history.save()
+
+    restored = SentHistory(path, now=NOW + timedelta(days=1))
+    assert [item.title for item in restored.get_pending()] == [paper.title]
+
+    restored.record([paper])
+    restored.set_pending(restored.get_pending())
+    restored.save()
+    delivered = SentHistory(path, now=NOW + timedelta(days=2))
+    assert delivered.get_pending() == []
+
+
+def test_core_journal_zero_streak_updates_once_per_day_and_alerts(tmp_path):
+    history = SentHistory(tmp_path / "sent-history.json", now=NOW)
+    journal = "Movement Disorders"
+
+    assert history.update_journal_zero_streaks("2026-07-29", [journal], {}, 3) == []
+    assert history.update_journal_zero_streaks("2026-07-29", [journal], {}, 3) == []
+    assert history.journal_zero_streaks[journal] == 1
+    assert history.update_journal_zero_streaks("2026-07-30", [journal], {}, 3) == []
+    alerts = history.update_journal_zero_streaks("2026-07-31", [journal], {}, 3)
+    assert alerts == [{"journal": journal, "zero_days": 3}]
+
+    assert history.update_journal_zero_streaks(
+        "2026-08-01", [journal], {journal: 2}, 3
+    ) == []
+    assert history.journal_zero_streaks[journal] == 0

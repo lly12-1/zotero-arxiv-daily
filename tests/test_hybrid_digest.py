@@ -117,6 +117,8 @@ def test_pubmed_retriever_passes_api_key_to_search_and_fetch(config, monkeypatch
     assert [endpoint for endpoint, _ in requests] == [
         "esearch.fcgi",
         "esearch.fcgi",
+        "esearch.fcgi",
+        "esearch.fcgi",
         "efetch.fcgi",
     ]
     assert all(params["api_key"] == "fake-ncbi-api-key" for _, params in requests)
@@ -124,7 +126,10 @@ def test_pubmed_retriever_passes_api_key_to_search_and_fetch(config, monkeypatch
     assert [(params["datetype"], params["reldate"]) for params in search_params] == [
         ("pdat", 7),
         ("edat", 14),
+        ("pdat", 7),
+        ("edat", 14),
     ]
+    assert all(params["retmax"] == 500 for params in search_params)
 
 
 def test_pubmed_search_unions_publication_and_entry_date_results(config, monkeypatch):
@@ -169,9 +174,45 @@ def test_pubmed_general_search_is_restricted_to_metric_journals(config, monkeypa
     monkeypatch.setattr(retriever, "_search_ids", fake_search)
 
     assert retriever._retrieve_raw_papers() == []
-    assert len(searched_terms) == 1
-    assert '"Alzheimer\'s & dementia : the journal of the Alzheimer\'s Association"[Journal]' in searched_terms[0]
+    assert len(searched_terms) == 2
+    general_query, core_query = searched_terms
+    assert '"Alzheimer\'s & dementia : the journal of the Alzheimer\'s Association"[Journal]' not in general_query
+    assert '"Alzheimer\'s & dementia : the journal of the Alzheimer\'s Association"[Journal]' in core_query
     assert '"Nature Neuroscience"[Journal]' in searched_terms[0]
+    assert '"Neurodegenerative Diseases"[Mesh]' in general_query
+    assert '"Neurodegenerative Diseases"[Mesh]' not in core_query
+
+
+def test_core_journal_papers_bypass_local_topic_filter(config):
+    with open_dict(config):
+        config.source.pubmed.api_key = None
+    retriever = PubmedRetriever(config)
+    retriever.core_pmids = {"12345678"}
+    paper = retriever.convert_to_paper(
+        _pubmed_xml(journal="Movement Disorders", pmid="12345678")
+    )
+    assert paper is not None
+    paper.title = "Unrelated wording"
+    paper.abstract = "No configured disease keyword appears here."
+    assert filter_topic_papers([paper], ["Alzheimer", "Parkinson"]) == [paper]
+
+
+def test_core_journal_reviews_are_included(config):
+    with open_dict(config):
+        config.source.pubmed.api_key = None
+    retriever = PubmedRetriever(config)
+    retriever.core_pmids = {"12345678"}
+
+    review = retriever.convert_to_paper(
+        _pubmed_xml(
+            publication_type="Review",
+            journal="Nature Reviews Neurology",
+            pmid="12345678",
+        )
+    )
+
+    assert review is not None
+    assert review.topic_bypass
 
 
 def test_pubmed_uses_post_for_long_search_terms(config, monkeypatch):
@@ -194,6 +235,31 @@ def test_pubmed_uses_post_for_long_search_terms(config, monkeypatch):
 
     assert retriever._request("esearch.fcgi", {"term": "A" * 1501}) is response
     assert calls[0][0] == "post"
+
+
+def test_pubmed_uses_post_for_large_fetch_batches(config, monkeypatch):
+    with open_dict(config):
+        config.source.pubmed.api_key = None
+        config.source.pubmed.retry_attempts = 1
+    retriever = PubmedRetriever(config)
+    response = SimpleNamespace(raise_for_status=lambda: None)
+    calls = []
+
+    def fake_post(url, data, timeout):
+        calls.append((url, data, timeout))
+        return response
+
+    monkeypatch.setattr(retriever.session, "post", fake_post)
+    monkeypatch.setattr(
+        retriever.session,
+        "get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("large PubMed fetches must not use GET")
+        ),
+    )
+
+    assert retriever._request("efetch.fcgi", {"id": "1," * 1000}) is response
+    assert calls[0][1]["id"].startswith("1,")
 
 
 def test_huntington_priority_pubmed_includes_reviews_and_meta_analyses(config):
@@ -384,3 +450,27 @@ def test_email_labels_huntington_topic_and_missing_metric():
     assert "亨廷顿病专题 · 不受期刊SJR阈值限制" in html
     assert "期刊影响指标：SJR未收录" in html
     assert "SJR 是期刊影响指标，不等同于 Clarivate JIF" in html
+
+
+def test_email_contains_journal_daily_report_pending_queue_and_alert():
+    html = render_email(
+        [],
+        journal_report=[
+            {
+                "journal": "Movement Disorders",
+                "core": True,
+                "retrieved": 4,
+                "filtered": 1,
+                "sent": 2,
+                "pending": 1,
+            }
+        ],
+        journal_alerts=[{"journal": "Brain", "zero_days": 3}],
+        pending_count=1,
+    )
+
+    assert "目标期刊运行日报" in html
+    assert "Movement Disorders" in html
+    assert "核心期刊抓取报警" in html
+    assert "Brain：连续 3 天抓取为 0" in html
+    assert "当前总待发送：1 篇" in html
