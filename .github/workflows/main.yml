@@ -23,11 +23,18 @@ on:
         default: false
         type: boolean
   schedule:
+    # GitHub scheduled workflows can be delayed or occasionally dropped. Try
+    # several times during the morning; the completion marker and concurrency
+    # lock ensure that only the first successful run sends an email.
     # 07:20 Asia/Shanghai (UTC+8), equivalent to 23:20 UTC on the previous day.
     - cron: '20 23 * * *'
-    # 09:10 Asia/Shanghai fallback. The daily marker makes this a no-op
-    # whenever the primary trigger has already completed successfully.
+    # 07:50, 08:20, and 08:50 retries.
+    - cron: '50 23 * * *'
+    - cron: '20 0 * * *'
+    - cron: '50 0 * * *'
+    # 09:10 and 09:40 final morning retries.
     - cron: '10 1 * * *'
+    - cron: '40 1 * * *'
 
 concurrency:
   group: neurodegeneration-daily-digest
