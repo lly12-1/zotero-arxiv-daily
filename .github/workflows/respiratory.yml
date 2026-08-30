@@ -8,10 +8,10 @@ on:
         default: false
         type: boolean
   schedule:
-    # 07:30 and 09:20 Asia/Shanghai. A separate local watchdog provides an
+    # 06:30 and 07:00 Asia/Shanghai. A separate local watchdog provides an
     # independent trigger because GitHub schedule events can be delayed.
-    - cron: '30 23 * * *'
-    - cron: '20 1 * * *'
+    - cron: '30 22 * * *'
+    - cron: '0 23 * * *'
 
 concurrency:
   group: respiratory-daily-digest
