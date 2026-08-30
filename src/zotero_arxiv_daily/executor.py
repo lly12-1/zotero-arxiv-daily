@@ -39,6 +39,34 @@ def filter_topic_papers(papers, keywords) -> list:
     return selected
 
 
+def filter_topic_papers_by_rules(
+    papers,
+    direct_keywords,
+    mechanism_keywords,
+    context_keywords,
+) -> list:
+    """Keep direct disease hits or mechanism hits in the requested organ context."""
+    direct = [_normalized_search_text(str(value)) for value in direct_keywords]
+    mechanisms = [_normalized_search_text(str(value)) for value in mechanism_keywords]
+    contexts = [_normalized_search_text(str(value)) for value in context_keywords]
+
+    def matches(padded: str, values: list[str]) -> bool:
+        return any(f" {value} " in padded for value in values if value)
+
+    selected = []
+    for paper in papers:
+        if paper.topic_bypass:
+            selected.append(paper)
+            continue
+        text = _normalized_search_text(f"{paper.title} {paper.abstract}")
+        padded = f" {text} "
+        if matches(padded, direct) or (
+            matches(padded, mechanisms) and matches(padded, contexts)
+        ):
+            selected.append(paper)
+    return selected
+
+
 def apply_journal_quality_bonus(papers, bonus_per_sjr: float) -> list:
     for paper in papers:
         if paper.score is None:
@@ -268,8 +296,24 @@ class Executor:
             )
             return
 
-        corpus = self.fetch_zotero_corpus()
-        corpus = self.filter_corpus(corpus)
+        ranking_profile = list(self.config.executor.get("ranking_profile", []))
+        if ranking_profile:
+            now = datetime.now()
+            corpus = [
+                CorpusPaper(
+                    title=f"Configured topic profile {index}",
+                    abstract=str(value),
+                    added_date=now,
+                    paths=["configured-topic-profile"],
+                )
+                for index, value in enumerate(ranking_profile, start=1)
+            ]
+            logger.info(
+                f"Using {len(corpus)} configured topic profiles for reranking"
+            )
+        else:
+            corpus = self.fetch_zotero_corpus()
+            corpus = self.filter_corpus(corpus)
         if len(corpus) == 0:
             logger.error(f"No zotero papers found. Please check your zotero settings:\n{self.config.zotero}")
             return
@@ -323,8 +367,21 @@ class Executor:
                     f"Core journal zero-retrieval alert: {alert['journal']} has "
                     f"reported zero records for {alert['zero_days']} consecutive days"
                 )
+        topic_rules = self.config.executor.get("topic_rules")
         topic_keywords = self.config.executor.get("topic_keywords", [])
-        if topic_keywords:
+        if topic_rules:
+            before_filter = len(all_papers)
+            all_papers = filter_topic_papers_by_rules(
+                all_papers,
+                topic_rules.get("direct_keywords", []),
+                topic_rules.get("mechanism_keywords", []),
+                topic_rules.get("context_keywords", []),
+            )
+            logger.info(
+                f"Rule-based topic filter retained {len(all_papers)} of "
+                f"{before_filter} papers"
+            )
+        elif topic_keywords:
             before_filter = len(all_papers)
             all_papers = filter_topic_papers(all_papers, topic_keywords)
             logger.info(
@@ -464,15 +521,32 @@ class Executor:
             journal_report=journal_report,
             journal_alerts=journal_alerts,
             pending_count=len(sent_history.get_pending()),
+            digest_name=str(
+                self.config.email.get("digest_name", "神经退行性疾病文献推送")
+            ),
+            priority_topic_label=self.config.email.get(
+                "priority_topic_label", "亨廷顿病"
+            ),
+            max_paper_num=int(self.config.executor.max_paper_num),
         )
         if journal_alerts:
             send_email(
                 self.config,
                 email_content,
-                subject="⚠️ 核心期刊抓取报警及今日文献推送",
+                subject=str(
+                    self.config.email.get(
+                        "alert_subject", "⚠️ 核心期刊抓取报警及今日文献推送"
+                    )
+                ),
             )
         elif len(reranked_papers) == 0:
-            send_email(self.config, email_content, subject="今日无新增文献")
+            send_email(
+                self.config,
+                email_content,
+                subject=str(
+                    self.config.email.get("empty_subject", "今日无新增文献")
+                ),
+            )
         else:
             send_email(self.config, email_content)
         logger.info("Email sent successfully")

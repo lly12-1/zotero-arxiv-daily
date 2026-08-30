@@ -153,7 +153,8 @@ def send_email(config:DictConfig, html:str, subject:str | None = None):
     msg['From'] = _format_addr('Github Action <%s>' % sender)
     msg['To'] = _format_addr('You <%s>' % receiver)
     today = datetime.datetime.now().strftime('%Y/%m/%d')
-    message_subject = f'{subject} {today}' if subject else f'Daily arXiv {today}'
+    default_subject = str(config.email.get('subject', 'Daily arXiv'))
+    message_subject = f'{subject} {today}' if subject else f'{default_subject} {today}'
     msg['Subject'] = Header(message_subject, 'utf-8').encode()
 
     try:

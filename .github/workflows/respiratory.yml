@@ -1,0 +1,61 @@
+name: Respiratory top-journal digest
+on:
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: Ignore today's completion marker and run normally
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # 07:30 and 09:20 Asia/Shanghai. A separate local watchdog provides an
+    # independent trigger because GitHub schedule events can be delayed.
+    - cron: '30 23 * * *'
+    - cron: '20 1 * * *'
+
+concurrency:
+  group: respiratory-daily-digest
+  cancel-in-progress: false
+
+jobs:
+  calculate-and-send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Restore respiratory sent history
+        uses: actions/cache/restore@v5
+        with:
+          path: .state/respiratory-sent-history.json
+          key: respiratory-sent-history-${{ github.run_id }}
+          restore-keys: |
+            respiratory-sent-history-
+
+      - name: Run respiratory digest
+        env:
+          ZOTERO_ID: ${{ secrets.ZOTERO_ID }}
+          ZOTERO_KEY: ${{ secrets.ZOTERO_KEY }}
+          SENDER: ${{ secrets.SENDER }}
+          RECEIVER: ${{ secrets.RESPIRATORY_RECEIVER }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          SMTP_SERVER: ${{ vars.SMTP_SERVER || 'smtp.qq.com' }}
+          SMTP_PORT: ${{ vars.SMTP_PORT || '465' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_API_BASE: ${{ vars.OPENAI_API_BASE || 'https://api.deepseek.com' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'deepseek-v4-flash' }}
+          NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
+          HF_HUB_DISABLE_XET: '1'
+          SENT_HISTORY_PATH: .state/respiratory-sent-history.json
+          FORCE_RUN: ${{ inputs.force_run || 'false' }}
+        run: uv run src/zotero_arxiv_daily/main.py --config-name respiratory
+
+      - name: Save respiratory sent history
+        if: ${{ success() && hashFiles('.state/respiratory-sent-history.json') != '' }}
+        uses: actions/cache/save@v5
+        with:
+          path: .state/respiratory-sent-history.json
+          key: respiratory-sent-history-${{ github.run_id }}

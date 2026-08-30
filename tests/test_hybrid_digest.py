@@ -8,6 +8,7 @@ from zotero_arxiv_daily.dedup import deduplicate_papers
 from zotero_arxiv_daily.executor import (
     apply_journal_quality_bonus,
     filter_topic_papers,
+    filter_topic_papers_by_rules,
     select_with_published_priority,
 )
 from zotero_arxiv_daily.journal_metrics import load_journal_metrics, match_journal_metric
@@ -59,6 +60,27 @@ def test_topic_filter_keeps_disease_relevant_preprints():
     assert filter_topic_papers([relevant, unrelated], ["Parkinson", "Alzheimer"]) == [relevant]
 
 
+def test_respiratory_topic_rules_require_lung_context_for_mechanisms():
+    copd = _paper(title="COPD exacerbation cohort", abstract="Clinical outcomes.")
+    lung_lactylation = _paper(
+        title="Histone lactylation in alveolar macrophages",
+        abstract="A pulmonary inflammation study.",
+    )
+    unrelated_lactylation = _paper(
+        title="Histone lactylation in glioma",
+        abstract="A brain tumor study.",
+    )
+
+    selected = filter_topic_papers_by_rules(
+        [copd, lung_lactylation, unrelated_lactylation],
+        ["COPD", "chronic obstructive pulmonary disease"],
+        ["lactylation", "cuproptosis"],
+        ["lung", "pulmonary", "alveolar", "airway"],
+    )
+
+    assert selected == [copd, lung_lactylation]
+
+
 def test_dedup_prefers_formally_published_pubmed_version():
     preprint = _paper(doi="10.1000/example")
     published = _paper(source="pubmed", doi="https://doi.org/10.1000/example", pmid="12345678")
@@ -77,6 +99,27 @@ def test_pubmed_retriever_applies_sjr_threshold_and_metadata(config):
     assert paper.journal_metric_value == 2.988
     assert paper.journal_quartile == "Q1"
     assert paper.evidence_level == "peer_reviewed"
+
+
+def test_respiratory_core_journal_is_retained_but_still_requires_topic(config):
+    with open_dict(config):
+        config.source.pubmed.api_key = None
+        config.source.pubmed.journal_metrics_file = (
+            "config/respiratory_journals_sjr_2025.csv"
+        )
+        config.source.pubmed.min_sjr = 1.5
+        config.source.pubmed.core_journals = ["COPD"]
+        config.source.pubmed.core_journals_bypass_topic = False
+    retriever = PubmedRetriever(config)
+    retriever.core_pmids = {"12345678"}
+
+    paper = retriever.convert_to_paper(
+        _pubmed_xml(journal="COPD", pmid="12345678")
+    )
+
+    assert paper is not None
+    assert paper.journal_metric_value == 0.622
+    assert not paper.topic_bypass
 
 
 def test_pubmed_retriever_rejects_unlisted_or_review_articles(config):
@@ -352,6 +395,23 @@ def test_expanded_whitelist_matches_pubmed_journal_names():
         assert metric.quartile == "Q1"
 
 
+def test_respiratory_whitelist_matches_pubmed_full_journal_names():
+    metrics = load_journal_metrics("config/respiratory_journals_sjr_2025.csv")
+    expected = {
+        "The Lancet. Respiratory medicine": (7.652, "Q1"),
+        "American journal of respiratory and critical care medicine": (5.423, "Q1"),
+        "European respiratory journal": (5.076, "Q1"),
+        "American journal of respiratory cell and molecular biology": (1.863, "Q1"),
+        "International journal of chronic obstructive pulmonary disease": (1.145, "Q2"),
+    }
+
+    for journal, (sjr, quartile) in expected.items():
+        metric = match_journal_metric(journal, metrics)
+        assert metric is not None
+        assert metric.sjr == sjr
+        assert metric.quartile == quartile
+
+
 def test_sjr_bonus_prioritizes_top_journal_without_removing_preprints():
     preprint = _paper(score=8.0)
     published = _paper(
@@ -454,6 +514,32 @@ def test_email_labels_huntington_topic_and_missing_metric():
     assert "亨廷顿病专题 · 不受期刊SJR阈值限制" in html
     assert "期刊影响指标：SJR未收录" in html
     assert "SJR 是期刊影响指标，不等同于 Clarivate JIF" in html
+
+
+def test_email_supports_respiratory_digest_without_huntington_copy():
+    paper = _paper(
+        source="pubmed",
+        pmid="87654321",
+        journal="Thorax",
+        score=8.0,
+        tldr="呼吸研究摘要",
+        journal_metric_name="SJR",
+        journal_metric_value=2.479,
+        journal_metric_year=2025,
+        journal_quartile="Q1",
+    )
+
+    html = render_email(
+        [paper],
+        digest_name="呼吸病学顶刊每日文献推送",
+        priority_topic_label=None,
+        max_paper_num=30,
+    )
+
+    assert "呼吸病学顶刊每日文献推送" in html
+    assert "正式发表（PubMed：目标期刊筛选）" in html
+    assert "每日文献上限30篇" in html
+    assert "亨廷顿病" not in html
 
 
 def test_email_contains_journal_daily_report_pending_queue_and_alert():

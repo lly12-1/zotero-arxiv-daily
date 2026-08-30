@@ -184,6 +184,9 @@ def render_email(
     journal_report: list[dict] | None = None,
     journal_alerts: list[dict] | None = None,
     pending_count: int = 0,
+    digest_name: str = "神经退行性疾病文献推送",
+    priority_topic_label: str | None = "亨廷顿病",
+    max_paper_num: int = 30,
 ) -> str:
 
     published = [paper for paper in papers if paper.source == "pubmed"]
@@ -218,8 +221,8 @@ def render_email(
                 else "期刊影响指标：SJR未收录"
             )
             special_topic = (
-                "亨廷顿病专题 · 不受期刊SJR阈值限制"
-                if p.special_topic == "Huntington disease"
+                f"{priority_topic_label}专题 · 不受期刊SJR阈值限制"
+                if p.special_topic and priority_topic_label
                 else ""
             )
             identifiers = [f"PMID {p.pmid}" if p.pmid else "", f"DOI {p.doi}" if p.doi else ""]
@@ -259,9 +262,12 @@ def render_email(
         )
       return parts
 
+    published_strategy = "目标期刊筛选"
+    if priority_topic_label:
+        published_strategy = f"顶刊筛选 + {priority_topic_label}专题全覆盖"
     sections = [
         (
-            f"<h2>正式发表（PubMed：顶刊筛选 + 亨廷顿病专题全覆盖）· {len(published)} 篇</h2>"
+            f"<h2>正式发表（PubMed：{published_strategy}）· {len(published)} 篇</h2>"
             + "<br>".join(render_group(published))
         )
         if published
@@ -274,9 +280,12 @@ def render_email(
         else "",
     ]
     if papers:
+        quota_note = f"每日文献上限{max_paper_num}篇"
+        if priority_topic_label:
+            quota_note += f"，{priority_topic_label}专题另行全量保留"
         summary = (
             f"<p><strong>今日共 {len(papers)} 篇</strong>：正式发表 {len(published)} 篇，"
-            f"预印本 {len(preprints)} 篇；普通文献上限30篇，亨廷顿病专题另行全量保留。"
+            f"预印本 {len(preprints)} 篇；{quota_note}。"
             f" 跨日待发送 {pending_count} 篇。</p>"
         )
         content = summary + "<br>".join(section for section in sections if section)
@@ -285,4 +294,5 @@ def render_email(
     report = _render_journal_report(journal_report, journal_alerts, pending_count)
     if report:
         content += "<br>" + report
+    content = f"<h1>{escape(digest_name)}</h1>" + content
     return framework.replace('__CONTENT__', content)

@@ -199,6 +199,7 @@ class PubmedRetriever(BaseRetriever):
         metric = match_journal_metric(journal, self.metrics)
         if (
             not priority_paper
+            and not core_paper
             and (metric is None or metric.sjr < self.min_sjr)
         ):
             return None
@@ -249,7 +250,14 @@ class PubmedRetriever(BaseRetriever):
             journal_metric_year=metric.year if metric else None,
             journal_quartile=metric.quartile if metric else None,
             special_topic="Huntington disease" if priority_paper else None,
-            topic_bypass=priority_paper or core_paper,
+            topic_bypass=priority_paper or (
+                core_paper
+                and bool(
+                    self.retriever_config.get(
+                        "core_journals_bypass_topic", True
+                    )
+                )
+            ),
         )
 
     def retrieve_papers(self) -> list[Paper]:

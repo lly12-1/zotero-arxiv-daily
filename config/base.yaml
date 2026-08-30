@@ -28,6 +28,7 @@ source:
     api_key: null # Optional NCBI API key.
     exclude_publication_types: [Review, Systematic Review, Meta-Analysis, Editorial, Comment, Letter, News]
     priority_allowed_publication_types: [] # Publication types restored only for the priority disease query.
+    core_journals_bypass_topic: true # Whether core-journal papers bypass the local topic filter.
 
 email:
   sender: ??? # The email account of the SMTP server that sends you email. Example: abc@qq.com
@@ -35,6 +36,9 @@ email:
   smtp_server: ??? # The SMTP server that sends the email. Ask your email provider (Gmail, QQ, Outlook, ...) for its SMTP server. Example: smtp.qq.com
   smtp_port: ??? # The port of SMTP server. Example: 465
   sender_password: ??? # The password of the sender account. Note that it's not necessarily the password for logging in the e-mail client, but the authentication code for SMTP service. Ask your email provider for this. Example: abcdefghijklmn
+  subject: Daily arXiv
+  digest_name: Daily literature digest
+  priority_topic_label: null
 
 llm:
   api:
@@ -66,6 +70,8 @@ executor:
   source: ??? # The sources of papers to retrieve. Example: ['arxiv','biorxiv','medrxiv']
   reranker: local # The reranker to use. Example: 'local' or 'api'
   topic_keywords: []
+  topic_rules: null
+  ranking_profile: []
   pubmed_sjr_bonus: 0.12
   priority_topic_keywords: []
   sent_history_path: .state/sent-history.json

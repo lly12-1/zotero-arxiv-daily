@@ -13,6 +13,11 @@ email:
   smtp_server: ${oc.env:SMTP_SERVER,smtp.qq.com}
   smtp_port: ${oc.env:SMTP_PORT,465}
   sender_password: ${oc.env:SENDER_PASSWORD}
+  subject: 神经退行性疾病每日文献推送
+  digest_name: 神经退行性疾病每日文献推送
+  priority_topic_label: 亨廷顿病
+  alert_subject: ⚠️ 神经退行性疾病核心期刊抓取报警及今日文献推送
+  empty_subject: 神经退行性疾病：今日无新增文献
 
 llm:
   api:
