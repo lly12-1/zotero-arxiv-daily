@@ -178,6 +178,8 @@ def test_pubmed_general_search_is_restricted_to_metric_journals(config, monkeypa
     general_query, core_query = searched_terms
     assert '"Alzheimer\'s & dementia : the journal of the Alzheimer\'s Association"[Journal]' not in general_query
     assert '"Alzheimer\'s & dementia : the journal of the Alzheimer\'s Association"[Journal]' in core_query
+    assert '"Movement disorders : official journal of the Movement Disorder Society"[Journal]' in core_query
+    assert '"Neurotherapeutics : the journal of the American Society for Experimental NeuroTherapeutics"[Journal]' in core_query
     assert '"Nature Neuroscience"[Journal]' in searched_terms[0]
     assert '"Neurodegenerative Diseases"[Mesh]' in general_query
     assert '"Neurodegenerative Diseases"[Mesh]' not in core_query
@@ -328,11 +330,13 @@ def test_expanded_whitelist_matches_pubmed_journal_names():
         "Alzheimer's & dementia : the journal of the Alzheimer's Association": 3.600,
         "Journal of neurology, neurosurgery, and psychiatry": 3.379,
         "NPJ Parkinson's disease": 2.914,
+        "Movement disorders : official journal of the Movement Disorder Society": 2.988,
         "Translational Neurodegeneration": 3.850,
         "Alzheimer's Research & Therapy": 2.709,
         "Acta Neuropathol Commun": 2.588,
         "Neurobiology of Disease": 2.009,
         "Neurotherapeutics": 1.620,
+        "Neurotherapeutics : the journal of the American Society for Experimental NeuroTherapeutics": 1.620,
         "GeroScience": 1.564,
         "Science Translational Medicine": 6.722,
         "Trends in Neurosciences": 4.726,
