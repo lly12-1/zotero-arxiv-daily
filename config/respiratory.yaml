@@ -1,0 +1,164 @@
+defaults:
+  - base
+  - _self_
+
+zotero:
+  user_id: ${oc.env:ZOTERO_ID}
+  api_key: ${oc.env:ZOTERO_KEY}
+  include_path: null
+  ignore_path: null
+
+email:
+  sender: ${oc.env:SENDER}
+  receiver: ${oc.env:RECEIVER}
+  smtp_server: ${oc.env:SMTP_SERVER,smtp.qq.com}
+  smtp_port: ${oc.env:SMTP_PORT,465}
+  sender_password: ${oc.env:SENDER_PASSWORD}
+  subject: 呼吸病学顶刊每日文献推送
+  digest_name: 呼吸病学顶刊每日文献推送：Cuproptosis · Lactylation · COPD
+  priority_topic_label: null
+  alert_subject: ⚠️ 呼吸病学核心期刊抓取报警及今日文献推送
+  empty_subject: 呼吸病学顶刊：今日无新增文献
+
+llm:
+  api:
+    key: ${oc.env:OPENAI_API_KEY}
+    base_url: ${oc.env:OPENAI_API_BASE,https://api.deepseek.com}
+  generation_kwargs:
+    model: ${oc.env:LLM_MODEL,deepseek-v4-flash}
+    max_tokens: 16384
+  language: Chinese
+
+reranker:
+  local:
+    model: sentence-transformers/all-MiniLM-L6-v2
+    encode_kwargs: null
+
+source:
+  arxiv:
+    category: [q-bio.CB, q-bio.MN, q-bio.TO, q-bio.QM, physics.med-ph]
+    include_cross_list: true
+  biorxiv:
+    category:
+      - cell biology
+      - molecular biology
+      - biochemistry
+      - physiology
+      - pathology
+      - pharmacology and toxicology
+  medrxiv:
+    category:
+      - respiratory medicine
+      - critical care medicine
+      - epidemiology
+      - pharmacology and therapeutics
+  pubmed:
+    journal_metrics_file: config/respiratory_journals_sjr_2025.csv
+    min_sjr: 1.5
+    lookback_days: 7
+    entry_lookback_days: 14
+    retmax: 500
+    restrict_search_to_journal_metrics: true
+    core_journals_bypass_topic: false
+    core_journals:
+      - The Lancet Respiratory Medicine
+      - American Journal of Respiratory and Critical Care Medicine
+      - European Respiratory Journal
+      - Thorax
+      - Chest
+      - American Journal of Respiratory Cell and Molecular Biology
+      - Respiratory Research
+      - Annals of the American Thoracic Society
+      - ERJ Open Research
+      - International Journal of Chronic Obstructive Pulmonary Disease
+      - COPD
+    api_key: ${oc.env:NCBI_API_KEY,null}
+    exclude_publication_types:
+      - Editorial
+      - Comment
+      - Letter
+      - News
+    core_allowed_publication_types:
+      - Review
+      - Systematic Review
+      - Meta-Analysis
+    priority_allowed_publication_types: []
+    priority_query: null
+    query: >-
+      (
+        "Pulmonary Disease, Chronic Obstructive"[Mesh]
+        OR COPD[Title/Abstract]
+        OR "chronic obstructive pulmonary disease"[Title/Abstract]
+        OR emphysema[Title/Abstract]
+        OR "chronic bronchitis"[Title/Abstract]
+        OR
+        (
+          (
+            cuproptosis[Title/Abstract]
+            OR "copper-dependent cell death"[Title/Abstract]
+            OR "copper dependent cell death"[Title/Abstract]
+            OR lactylation[Title/Abstract]
+            OR "lysine lactylation"[Title/Abstract]
+            OR "histone lactylation"[Title/Abstract]
+          )
+          AND
+          (
+            lung[Title/Abstract]
+            OR pulmonary[Title/Abstract]
+            OR respiratory[Title/Abstract]
+            OR airway[Title/Abstract]
+            OR bronchial[Title/Abstract]
+            OR alveolar[Title/Abstract]
+          )
+        )
+      )
+
+executor:
+  debug: ${oc.decode:${oc.env:DEBUG,false}}
+  send_empty: true
+  max_paper_num: 30
+  source: [pubmed, arxiv, biorxiv, medrxiv]
+  reranker: local
+  sent_history_path: ${oc.env:SENT_HISTORY_PATH,.state/respiratory-sent-history.json}
+  sent_history_days: 30
+  pending_max_papers: 2000
+  journal_zero_alert_days: 3
+  seed_history_only: false
+  seed_exclude_pmids: ""
+  daily_timezone: Asia/Shanghai
+  force_run: ${oc.decode:${oc.env:FORCE_RUN,false}}
+  mark_today_complete_only: false
+  topic_keywords: []
+  topic_rules:
+    direct_keywords:
+      - chronic obstructive pulmonary disease
+      - COPD
+      - pulmonary emphysema
+      - emphysema
+      - chronic bronchitis
+    mechanism_keywords:
+      - cuproptosis
+      - copper-dependent cell death
+      - copper dependent cell death
+      - copper-induced cell death
+      - lactylation
+      - lysine lactylation
+      - histone lactylation
+      - protein lactylation
+      - Kla
+    context_keywords:
+      - lung
+      - pulmonary
+      - respiratory
+      - airway
+      - bronchial
+      - alveolar
+      - COPD
+      - emphysema
+      - bronchitis
+  ranking_profile:
+    - COPD, chronic obstructive pulmonary disease, emphysema, chronic bronchitis, airway inflammation, pulmonary function, exacerbation, rehabilitation and treatment.
+    - Cuproptosis and copper-dependent regulated cell death in lung, airway, alveolar and respiratory disease mechanisms.
+    - Histone, lysine and protein lactylation in pulmonary inflammation, immune metabolism, airway remodeling and COPD.
+  pubmed_sjr_bonus: 0.12
+  priority_topic_keywords: []
