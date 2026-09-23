@@ -171,6 +171,15 @@ def send_email(config:DictConfig, html:str, subject:str | None = None):
             logger.debug(f"Failed to use SSL. {e}\nTry to use plain text.")
             server = smtplib.SMTP(smtp_server, smtp_port)
 
-    server.login(sender, password)
-    server.sendmail(sender, [receiver], msg.as_string())
-    server.quit()
+    try:
+        server.login(sender, password)
+        refused = server.sendmail(sender, [receiver], msg.as_string())
+        if refused:
+            # sendmail() reports refused recipients instead of raising when
+            # the SMTP server accepts the transaction only partially.
+            raise smtplib.SMTPRecipientsRefused(refused)
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            logger.debug("Failed to close SMTP connection", exc_info=True)

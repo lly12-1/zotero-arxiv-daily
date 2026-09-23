@@ -133,6 +133,31 @@ def test_send_email_starttls_success(config, monkeypatch):
     assert "text/html" in body
 
 
+def test_send_email_raises_on_refused_recipient(config, monkeypatch):
+    import smtplib
+
+    class RefusingSMTP:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def starttls(self):
+            pass
+
+        def login(self, *args, **kwargs):
+            pass
+
+        def sendmail(self, *args, **kwargs):
+            return {"test@example.com": (550, b"mailbox unavailable")}
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr(smtplib, "SMTP", RefusingSMTP)
+
+    with pytest.raises(smtplib.SMTPRecipientsRefused):
+        send_email(config, "<html>hello</html>")
+
+
 def test_send_email_falls_back_to_ssl(config, monkeypatch):
     sent = []
     call_count = {"smtp": 0}
