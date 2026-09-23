@@ -289,6 +289,7 @@ class Executor:
             return
         seed_history_only = self.config.executor.get("seed_history_only", False)
         force_run = self.config.executor.get("force_run", False)
+        resend_run = self.config.executor.get("resend_run", False)
         if not seed_history_only and not force_run and sent_history.completed_on(run_date):
             logger.info(
                 f"Daily digest already completed for {run_date}; "
@@ -393,28 +394,38 @@ class Executor:
             f"Cross-source deduplication retained {len(all_papers)} "
             f"of {before_dedup} papers"
         )
-        all_papers, previously_sent_count = sent_history.filter_unsent(all_papers)
-        logger.info(
-            f"Sent-history filter excluded {previously_sent_count} previously "
-            f"delivered papers; {len(all_papers)} remain"
-        )
+        if resend_run:
+            logger.warning(
+                "Resend mode enabled; bypassing sent-history filtering for "
+                "the current digest only"
+            )
+        else:
+            all_papers, previously_sent_count = sent_history.filter_unsent(all_papers)
+            logger.info(
+                f"Sent-history filter excluded {previously_sent_count} previously "
+                f"delivered papers; {len(all_papers)} remain"
+            )
         current_eligible_journal_counts = _journal_counts(all_papers)
-        pending_papers = sent_history.get_pending()
+        pending_papers = [] if resend_run else sent_history.get_pending()
         if pending_papers:
             logger.info(
                 f"Restored {len(pending_papers)} papers from the persistent pending queue"
             )
         all_papers = deduplicate_papers(pending_papers + all_papers)
-        all_papers, pending_sent_count = sent_history.filter_unsent(all_papers)
+        if not resend_run:
+            all_papers, pending_sent_count = sent_history.filter_unsent(all_papers)
+        else:
+            pending_sent_count = 0
         if pending_sent_count:
             logger.info(
                 f"Removed {pending_sent_count} already delivered papers while merging "
                 "the pending queue"
             )
-        sent_history.set_pending(
-            all_papers,
-            int(self.config.executor.get("pending_max_papers", 2000)),
-        )
+        if not resend_run:
+            sent_history.set_pending(
+                all_papers,
+                int(self.config.executor.get("pending_max_papers", 2000)),
+            )
         reranked_papers = []
         if len(all_papers) > 0:
             logger.info("Reranking papers...")
@@ -432,10 +443,11 @@ class Executor:
             remaining_papers = [
                 paper for paper in all_papers if id(paper) not in selected_ids
             ]
-            sent_history.set_pending(
-                remaining_papers,
-                int(self.config.executor.get("pending_max_papers", 2000)),
-            )
+            if not resend_run:
+                sent_history.set_pending(
+                    remaining_papers,
+                    int(self.config.executor.get("pending_max_papers", 2000)),
+                )
             published_count = sum(
                 paper.source == "pubmed" for paper in reranked_papers
             )

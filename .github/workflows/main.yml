@@ -22,6 +22,11 @@ on:
         required: false
         default: false
         type: boolean
+      resend_run:
+        description: Resend the current digest without applying sent-history filtering
+        required: false
+        default: false
+        type: boolean
   schedule:
     # 06:30 Asia/Shanghai (UTC+8), equivalent to 22:30 UTC on the previous day.
     - cron: '30 22 * * *'
@@ -70,6 +75,7 @@ jobs:
           SEED_EXCLUDE_PMIDS: ${{ inputs.seed_exclude_pmids || '' }}
           FORCE_RUN: ${{ inputs.force_run || 'false' }}
           MARK_TODAY_COMPLETE_ONLY: ${{ inputs.mark_today_complete_only || 'false' }}
+          RESEND_RUN: ${{ inputs.resend_run || 'false' }}
         run: uv run src/zotero_arxiv_daily/main.py
 
       - name: Save sent history
